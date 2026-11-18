@@ -1,6 +1,9 @@
 [Unit]
-Description=Process seemore USB eject requests
+Description=Process seemore USB requests (eject, protection mode, health check, repair)
+# requests can come in bursts (bot + panel); never let systemd's start limit disable the watcher
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/usb-automount requests
+TimeoutStartSec=1800

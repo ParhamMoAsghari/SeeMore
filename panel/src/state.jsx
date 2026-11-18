@@ -1,4 +1,5 @@
 // Global state: session, live events (SSE with Last-Event-ID replay), toasts, theme.
+import { goNext } from './oidcnext.js';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { get, post, setCsrf, setUnauthorizedHandler } from './api.js';
 
@@ -19,7 +20,7 @@ export function AppProvider({ children }) {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === 'error' ? 7000 : 4000);
   }, []);
   const refresh = useCallback(async () => {
-    try { const s = await get('/auth/session'); setCsrf(s.csrf); setMe(s); } catch { setMe(null); }
+    try { const s = await get('/auth/session'); setCsrf(s.csrf); setMe(s); goNext(); } catch { setMe(null); }
   }, []);
   useEffect(() => { refresh(); setUnauthorizedHandler(() => setMe(null)); }, [refresh]);
   const logout = useCallback(async () => { try { await post('/auth/logout'); } catch {} setMe(null); }, []);
@@ -45,7 +46,7 @@ export function AppProvider({ children }) {
     return () => { stop = true; es && es.close(); };
   }, [me]);
   const subscribe = useCallback((fn) => { listeners.current.add(fn); return () => listeners.current.delete(fn); }, []);
-  const can = useCallback((p) => !!me && (me.perms || []).includes(p), [me]);
+  const can = useCallback((p) => !!me && (p === 'svc' ? (me.perms || []).some((x) => x.startsWith('svc.')) : (me.perms || []).includes(p)), [me]);   // 'svc' = any service login permission
 
   const value = useMemo(() => ({ me, setMe, refresh, logout, toast, theme, setTheme, live, subscribe, can }), [me, refresh, logout, toast, theme, live, subscribe, can]);
   return (

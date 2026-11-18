@@ -1,10 +1,12 @@
 [Unit]
-Description=Watch seemore USB eject requests
+Description=Watch seemore USB requests (eject, mode, check, repair)
+StartLimitIntervalSec=0
 
 [Path]
 DirectoryNotEmpty=/run/usb-automount/requests
 MakeDirectory=yes
 DirectoryMode=0770
+TriggerLimitIntervalSec=0
 
 [Install]
 WantedBy=multi-user.target

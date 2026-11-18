@@ -11,6 +11,7 @@ const SET = require('../settings');
 const M = require('../media');
 const X = require('../core_ext');
 const auth = require('./auth');
+const SSO = require('../sso');
 
 const HANDLED = Symbol('handled');
 const R = [];
@@ -84,6 +85,9 @@ route('POST', '/storage/devices/:id/mkdir', call('usb.mkdir', (c) => ({ drive: c
 route('POST', '/storage/devices/:id/rename', call('usb.rename', (c) => ({ drive: c.params.id, rel: c.body.path, name: c.body.name })));
 route('POST', '/storage/devices/:id/move', call('usb.transfer', (c) => ({ from: c.params.id, to: c.body.to || c.params.id, rel: c.body.path, destRel: c.body.dest || '', op: c.body.op === 'copy' ? 'copy' : 'move', mode: c.body.mode || 'ask' })));
 route('DELETE', '/storage/devices/:id/entries', call('usb.delete', (c) => ({ drive: c.params.id, rel: c.query.path })));
+route('POST', '/storage/devices/:id/mode', call('usb.mode', (c) => ({ drive: c.params.id, mode: c.body.mode, confirm: c.body.confirm === true })));
+route('POST', '/storage/devices/:id/check', call('usb.check', (c) => ({ drive: c.params.id })));
+route('POST', '/storage/devices/:id/repair', call('usb.repair', (c) => ({ drive: c.params.id, confirm: c.body.confirm === true })));
 route('POST', '/storage/devices/:id/eject', call('usb.eject', (c) => ({ drive: c.params.id })));
 // exports (copy library -> drive)
 route('POST', '/storage/exports/plan', call('usb.copyPlan', (c) => ({ drive: c.body.drive, sel: c.body.sel, folder: c.body.folder })));
@@ -160,6 +164,27 @@ route('POST', '/torrent/alt-speed/toggle', call('torrent.alt', () => ({ toggle: 
 route('GET', '/arr/profiles', call('arr.profiles'));
 route('GET', '/arr/rootfolders', call('arr.rootfolders'));
 route('POST', '/arr/rootfolders', call('arr.addRoot', (c) => ({ k: kind(c.body.kind), path: c.body.path })), 201);
+
+// ---------- single sign-on launcher: links only to the services this user may use ----------
+route('GET', '/sso/services', (c, uid) => {
+  if (SSO.enabled() && !SSO.whoami(c.req)) {   // session predates the SSO cookie: bind a token now
+    const sid = SSO.cookies(c.req).sm_session; const sc = sid && SSO.issue(c.req, sid);
+    if (sc) c.res.setHeader('Set-Cookie', sc);
+  }
+  return SSO.services(c.req, uid);
+});
+
+// OIDC client registry (owner only). The client secret is returned once, on creation.
+route('GET', '/sso/oidc/clients', (c, uid) => { if (!P.isOwner(uid)) throw Object.assign(new Error('forbidden'), { status: 403 }); return require('../oidc').clients(); });
+route('PUT', '/sso/oidc/clients/:id', (c, uid) => {
+  if (!P.isOwner(uid)) throw Object.assign(new Error('forbidden'), { status: 403 });
+  const id = String(c.params.id); if (!/^[a-z0-9_-]{2,32}$/.test(id)) throw Object.assign(new Error('invalid client id'), { status: 400 });
+  const redirects = (c.body.redirects || []).map(String); if (!redirects.length || redirects.some((r) => !/^https?:\/\/[^\s]+$/.test(r))) throw Object.assign(new Error('redirects: list of http(s) URLs'), { status: 400 });
+  const perm = c.body.perm ? String(c.body.perm) : null; if (perm && !P.KEYS.includes(perm)) throw Object.assign(new Error('unknown permission'), { status: 400 });
+  P.audit(uid, 'admin', 'oidc_client', id);
+  return require('../oidc').registerClient({ id, redirects, perm });
+});
+route('DELETE', '/sso/oidc/clients/:id', (c, uid) => { if (!P.isOwner(uid)) throw Object.assign(new Error('forbidden'), { status: 403 }); require('../oidc').removeClient(String(c.params.id)); return { ok: true }; });
 
 // ---------- system / health ----------
 route('GET', '/health', async (c, uid) => {

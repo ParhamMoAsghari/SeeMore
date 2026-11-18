@@ -112,8 +112,8 @@ table.t { width: 100%; border-collapse: collapse; } .t th, .t td { text-align: s
 .toast.error { border-inline-start-color: var(--bad); } .toast.ok { border-inline-start-color: var(--ok); }
 @keyframes tin { from { transform: translateY(10px); opacity: 0; } }
 @media (max-width: 900px) { .toasts { bottom: 80px; } }
-.modal-bg { position: fixed; inset: 0; background: rgba(5,8,15,.6); display: grid; place-items: center; z-index: 60; padding: 16px; backdrop-filter: blur(3px); }
-.modal { background: var(--card); border: 1px solid var(--line); border-radius: 16px; width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; box-shadow: var(--shadow); }
+.modal-bg { position: fixed; inset: 0; background: rgba(5,8,15,.6); display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; z-index: 60; padding: 16px; backdrop-filter: blur(3px); }
+.modal { min-width: 0; max-width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: 16px; width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; box-shadow: var(--shadow); }
 .modal.wide { width: min(960px, 100%); }
 .modal-h { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); }
 .modal-b { padding: 16px 18px; overflow-y: auto; } .modal-f { display: flex; justify-content: flex-start; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); flex-wrap: wrap; }
@@ -154,3 +154,77 @@ button.link { background: none; border: 0; padding: 0; color: var(--acc); cursor
 .nowrap { white-space: nowrap; }
 .li.wrap { flex-wrap: wrap; }
 @media (max-width: 700px) { .hide-sm { display: none !important; } }
+
+/* ---- responsive hardening (phones 360-430px, RTL) ---- */
+html, body { max-width: 100%; } .shell { overflow-x: clip; }
+.shell, .main, .content, .stack, .card, .card-b, .col, .grow, .field, .modal-b, .modal-h h3 { min-width: 0; }
+.stack > *, .col > * { min-width: 0; max-width: 100%; }
+.modal-h h3 { overflow-wrap: anywhere; flex: 1; }
+.modal-h { gap: 10px; }
+.modal-b { min-width: 0; overflow-x: hidden; overflow-wrap: anywhere; }
+img, video, svg, canvas { max-width: 100%; }
+.row > input, .row > select, .row > .field, .row > textarea { min-width: 0; }
+.urlrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.urlrow input { flex: 1 1 auto; min-width: 0; width: auto; text-overflow: ellipsis; }
+.urlrow .btn, .urlrow a { flex: none; }
+.fname { overflow-wrap: anywhere; word-break: break-all; white-space: normal; }
+.tbl-wrap, .tscroll { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+.logbox { max-width: 100%; }
+.kv dd, .kv dt { min-width: 0; }
+.toasts { max-width: min(420px, calc(100vw - 24px)); }
+@media (max-width: 700px) {
+  .modal-bg { align-items: end; justify-items: stretch; padding: 0; }
+  .modal, .modal.wide { width: 100%; max-width: 100%; max-height: 92vh; max-height: 92dvh; border-radius: 18px 18px 0 0; border-bottom: 0; }
+  .modal-b { padding: 14px 14px; overscroll-behavior: contain; }
+  .modal-h { padding: 12px 14px; position: sticky; top: 0; }
+  .modal-h h3 { font-size: 15px; line-height: 1.6; }
+  .modal-f { padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); gap: 8px; }
+  .modal-f > .btn { flex: 1 1 140px; }
+  .modal-bg .grid.g2, .modal-bg .grid.g3, .modal-bg .grid.g4 { grid-template-columns: minmax(0, 1fr); }
+  .toasts { inset-inline: 12px; left: 12px; right: 12px; bottom: calc(74px + env(safe-area-inset-bottom)); max-width: none; align-items: stretch; }
+  .toast { overflow-wrap: anywhere; word-break: break-word; }
+  .tbl { display: block; overflow-x: auto; max-width: 100%; white-space: nowrap; }
+  .tbl td, .tbl th { white-space: nowrap; }
+  .page-h h2 { font-size: 18px; }
+  .page-h { align-items: center; }
+  .card-h { padding: 12px 14px 0; } .card-b { padding: 12px 14px 14px; }
+  .alert { flex-wrap: wrap; }
+  .savebar { inset-inline: 0; bottom: calc(66px + env(safe-area-inset-bottom)); }
+  .setting .k { text-align: start; overflow-wrap: anywhere; }
+  .li.wrap, .li { flex-wrap: wrap; }
+  .li > .grow { flex-basis: 140px; }
+}
+/* touch targets >= 40px on phones/tablets and coarse pointers */
+@media (max-width: 900px), (pointer: coarse) {
+  .btn, .btn.sm { min-height: 40px; padding-block: 6px; }
+  .icon-btn { min-width: 40px; min-height: 40px; align-items: center; justify-content: center; }
+  input[type=text], input[type=password], input[type=number], input[type=search], input[type=datetime-local], input:not([type]), select { min-height: 44px; font-size: 16px; }
+  textarea { font-size: 16px; }
+  .tabs button { min-height: 40px; }
+  .toggle, .check, label.row, .badge.check { min-height: 40px; }
+  .check input, .badge.check input { width: 20px; height: 20px; }
+  .li.click { min-height: 44px; }
+  .crumbs button { min-height: 40px; padding: 4px 8px; }
+  button.link { min-height: 40px; padding-inline: 4px; }
+  .side nav a { min-height: 44px; }
+  .bottom a { min-height: 56px; justify-content: center; }
+  .topbar .icon-btn { min-width: 44px; min-height: 44px; }
+  .side-f .icon-btn { min-width: 44px; min-height: 44px; }
+}
+@media (max-width: 400px) {
+  .content { padding: 12px; padding-bottom: 92px; }
+  .page-h .btn span { white-space: nowrap; }
+  .stat { padding: 12px; gap: 10px; }
+  .mgrid { gap: 8px; }
+}
+@media (max-width: 900px), (pointer: coarse) {
+  .btn, .btn.sm { min-width: 40px; }
+  a.small { display: inline-flex; align-items: center; min-height: 40px; min-width: 40px; padding-inline: 8px; }
+}
+/* services launcher (single sign-on) */
+.svc-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); }
+.svc-tile { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 16px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); color: inherit; text-decoration: none; min-width: 0; min-height: 44px; transition: transform .12s, border-color .12s; }
+.svc-tile:hover, .svc-tile:focus-visible { border-color: var(--pri, #7aa2ff); transform: translateY(-1px); }
+.svc-tile b { overflow-wrap: anywhere; }
+.svc-ic { font-size: 30px; line-height: 1; }
+@media (max-width: 420px) { .svc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

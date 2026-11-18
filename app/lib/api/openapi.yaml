@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: seemore API
-  version: "1.0.0"
+  version: "1.1.0"
   description: "Central seemore backend: single source of truth for the Telegram/Bale bots and the web panel. All paths are under /api/v1. Authentication: session cookie sm_session (HttpOnly, SameSite=Strict, Secure on https) + X-CSRF-Token header on every non-GET request (same-origin is also checked). Permissions follow perms.js; x-permission names the permission each operation needs (admin = owner only)."
 servers:
   - url: /api/v1
@@ -898,11 +898,81 @@ paths:
           content:
             "application/json": {schema: {type: object}}
         default: {$ref: '#/components/responses/Error'}
+  /sso/oidc/clients:
+    get:
+      tags: [sso]
+      summary: "Registered OpenID Connect clients (owner)"
+      description: "Client secrets are not returned."
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /sso/oidc/clients/{id}:
+    put:
+      tags: [sso]
+      summary: "Register or replace an OpenID Connect client (owner)"
+      description: "Body: {redirects:[url], perm?}. The client secret is returned once, on creation."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [sso]
+      summary: "Remove an OpenID Connect client (owner)"
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /sso/services:
+    get:
+      tags: [sso]
+      summary: "Services this user may open, with sign-in links"
+      description: "Only services matching the user's svc.* permissions. Binds an SSO cookie when single sign-on is on and the session does not have one yet."
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
   /storage/devices:
     get:
       tags: [storage]
       summary: "Connected external drives (identity: fs UUID + device serial + partition + seemore marker)"
       x-permission: usb_view
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/devices/{id}/check:
+    post:
+      tags: [storage]
+      summary: "Check-only filesystem check of a mounted drive"
+      description: "Does not repair. A writable drive is briefly remounted read-only for the check."
+      x-permission: usb_view
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
       responses:
         '200':
           description: OK
@@ -984,6 +1054,25 @@ paths:
           content:
             "application/json": {schema: {type: object}}
         default: {$ref: '#/components/responses/Error'}
+  /storage/devices/{id}/mode:
+    post:
+      tags: [storage]
+      summary: "Switch a drive between protected (read-only) and writable"
+      description: "Body: {mode:\"protected\"|\"writable\", confirm:true} for writable. Policy is stored by drive identity."
+      x-permission: admin
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
   /storage/devices/{id}/move:
     post:
       tags: [storage]
@@ -1009,6 +1098,25 @@ paths:
       summary: "Rename a file or folder"
       description: "Body: {path, name}"
       x-permission: usb_manage
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/devices/{id}/repair:
+    post:
+      tags: [storage]
+      summary: "Repairing filesystem check of a writable drive"
+      description: "Refused while the drive is protected. Body: {confirm:true}."
+      x-permission: admin
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
       requestBody:

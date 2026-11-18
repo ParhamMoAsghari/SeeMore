@@ -17,28 +17,62 @@ function useDrives() {
   return [d, reload, st];
 }
 
+const FSCK_FA = { clean: '✅ سالم', dirty: '⚠️ قبلاً بدون جداسازی امن جدا شده', repaired: '🛠 تعمیر شد', skipped: 'بررسی نشد', timeout: '⏱ متوقف شد' };
+const fsckFa = (r) => (!r ? '' : FSCK_FA[r] || (/^errors/.test(r) ? '❗ خطای فایل‌سیستم (تعمیر نشد)' : r));
+// shown only when the drive was not ejected safely (dirty) or has real errors; nothing for a clean drive
+const fsckNote = (r) => (r === 'dirty' ? '⚠️ این فلش قبلاً بدون جداسازی امن جدا شده؛ بعداً چک کن.' : /^errors/.test(r || '') ? '❗ فایل‌سیستم این فلش خطا دارد؛ بعداً روی کامپیوتر چکش کن.' : '');
+
 function DriveList() {
   const { can, toast } = useApp();
   const [drives, reload, st] = useDrives();
   const [ej, setEj] = useState(null);
+  const [act, setAct] = useState(null); // { kind: 'writable' | 'protected' | 'repair', d }
+  const [chk, setChk] = useState(null);
+  const owner = can('admin');
+  async function check(d) {
+    setChk({ d, loading: true });
+    try { const r = await post(`/storage/devices/${encodeURIComponent(d.id)}/check`); setChk({ d, ...r }); reload(true); } catch (e) { setChk(null); toast(e.message, 'error'); }
+  }
   return (
     <div className="stack">
       <div className="page-h"><h2>حافظه‌های خارجی</h2><div className="row gap">{can('usb_copy') && <Link to="/drives/copy"><Btn kind="primary" icon="copy">کپی از کتابخانه روی حافظه</Btn></Link>}<Btn kind="ghost" icon="refresh" onClick={() => reload()} /></div></div>
       <Err error={st.error} retry={reload} />
       {!drives ? <Spinner /> : !drives.length ? <Empty>هیچ فلش یا هاردی وصل نیست. بعد از وصل کردن، خودکار شناسایی و اینجا نمایش داده می‌شود.</Empty> : <div className="grid g2">{drives.map((d) => (
-        <Card key={d.id} title={`💾 ${d.title || d.name}`} actions={<><Badge>{d.fstype}</Badge>{d.ro && <Badge kind="warn">فقط‌خواندنی</Badge>}{d.busy && <Badge kind="pri">در حال انتقال</Badge>}</>}>
+        <Card key={d.id} title={`💾 ${d.title || d.name}`} actions={<><Badge>{d.fstype}</Badge>{d.protected ? <Badge kind="warn">🔒 محافظت‌شده</Badge> : d.ro ? <Badge kind="warn">فقط‌خواندنی</Badge> : <Badge kind="ok">✏️ قابل نوشتن</Badge>}{fsckNote(d.fsck) && <Badge kind="warn">⚠️ بعداً چک کن</Badge>}{d.busy && <Badge kind="pri">در حال انتقال</Badge>}</>}>
           <div className="col">
             <Progress value={pct(d.total - d.free, d.total)} />
-            <span className="muted small">{bytes(d.free)} آزاد از {bytes(d.total)}{d.fsck ? ` · بررسی سلامت: ${d.fsck}` : ''}</span>
+            <span className="muted small">{bytes(d.free)} آزاد از {bytes(d.total)}</span>
+            {fsckNote(d.fsck) && <span className="small" style={{ color: 'var(--warn)' }}>{fsckNote(d.fsck)}</span>}
+            {d.protected && <span className="small muted">🔒 فقط‌خواندنی: کپی، جابه‌جایی، تغییر نام، ساخت پوشه، حذف و تعمیر روی این حافظه غیرفعال است. مرور، مشخصات، انتقال به سرور و دانلود مجاز است.</span>}
             {d.fstype === 'vfat' && <span className="small" style={{ color: 'var(--warn)' }}>FAT32: فایل‌های بزرگ‌تر از ۴ گیگابایت روی این حافظه جا نمی‌شوند.</span>}
             <div className="row gap wrap">
               <Link to={`/drives/${encodeURIComponent(d.id)}`}><Btn kind="sm" icon="folder">مرور</Btn></Link>
               {can('usb_copy') && !d.ro && <Link to={`/drives/copy?drive=${encodeURIComponent(d.id)}`}><Btn kind="sm" icon="copy">کپی روی این حافظه</Btn></Link>}
               {can('usb_import') && <Link to={`/drives/${encodeURIComponent(d.id)}/import`}><Btn kind="sm" icon="up">انتقال به سرور</Btn></Link>}
+              <Btn kind="sm ghost" disabled={d.busy && !d.ro} onClick={() => check(d)}>🩺 بررسی سلامت</Btn>
+              {owner && (d.protected
+                ? <Btn kind="sm ghost" disabled={d.busy} onClick={() => setAct({ kind: 'writable', d })}>✏️ اجازهٔ نوشتن</Btn>
+                : <Btn kind="sm ghost" disabled={d.busy} onClick={() => setAct({ kind: 'protected', d })}>🔒 محافظت‌شده</Btn>)}
+              {owner && !d.protected && <Btn kind="sm ghost" disabled={d.busy} onClick={() => setAct({ kind: 'repair', d })}>🛠 تعمیر</Btn>}
               <Btn kind="sm ghost" icon="eject" disabled={d.busy} onClick={() => setEj(d)}>خروج امن</Btn>
             </div>
           </div>
         </Card>))}</div>}
+      {chk && <Modal title={`🩺 بررسی سلامت: ${chk.d.title || chk.d.name}`} onClose={() => setChk(null)}>
+        {chk.loading ? <><Spinner /><p className="muted small">فقط خواندن؛ هیچ تغییری روی حافظه داده نمی‌شود.</p></> : <>
+          <p><b>{chk.label || fsckFa(chk.result)}</b></p>
+          {fsckNote(chk.result) && <p className="small">{fsckNote(chk.result)}</p>}
+          {chk.log && <pre className="small" dir="ltr" style={{ whiteSpace: 'pre-wrap', maxHeight: '40vh', overflow: 'auto' }}>{chk.log}</pre>}</>}
+      </Modal>}
+      {act && act.kind === 'writable' && <Confirm danger title="⚠️ اجازهٔ نوشتن" okText="بله، اجازهٔ نوشتن بده" text={`«${act.d.title || act.d.name}» دوباره با امکان نوشتن وصل می‌شود و ربات، پنل و کارهای انتقال می‌توانند روی آن بنویسند، فایل جابه‌جا یا حذف کنند. این تنظیم برای همین حافظه ذخیره می‌شود. اگر اطلاعات مهمی روی آن است و نسخهٔ دیگری ندارد، محافظت را برندارید.`} onClose={() => setAct(null)} onOk={async () => {
+        try { await post(`/storage/devices/${encodeURIComponent(act.d.id)}/mode`, { mode: 'writable', confirm: true }); toast('نوشتن مجاز شد', 'ok'); reload(true); } catch (e) { toast(e.message, 'error'); throw e; }
+      }} />}
+      {act && act.kind === 'protected' && <Confirm title="🔒 محافظت از حافظه" okText="محافظت کن" text={`داده‌های در حال نوشتن کامل روی «${act.d.title || act.d.name}» ثبت می‌شوند و حافظه فقط‌خواندنی می‌شود؛ دفعه‌های بعد هم فقط‌خواندنی وصل می‌شود.`} onClose={() => setAct(null)} onOk={async () => {
+        try { await post(`/storage/devices/${encodeURIComponent(act.d.id)}/mode`, { mode: 'protected', confirm: true }); toast('حافظه محافظت‌شده شد', 'ok'); reload(true); } catch (e) { toast(e.message, 'error'); throw e; }
+      }} />}
+      {act && act.kind === 'repair' && <Confirm danger title="🛠 تعمیر فایل‌سیستم" okText="بله، تعمیر کن" text={`هشدار جدی: تعمیر ساختار فایل‌سیستم «${act.d.title || act.d.name}» را تغییر می‌دهد و اگر حافظه واقعاً خراب باشد ممکن است بعضی فایل‌ها حذف، کوتاه یا به اسم FSCK*.REC منتقل شوند. اول از اطلاعات مهم نسخهٔ پشتیبان بگیرید. حافظه در طول تعمیر جدا و دوباره وصل می‌شود. فرمت انجام نمی‌شود.`} onClose={() => setAct(null)} onOk={async () => {
+        try { const r = await post(`/storage/devices/${encodeURIComponent(act.d.id)}/repair`, { confirm: true }); toast(`نتیجهٔ تعمیر: ${r.label || r.result}`, 'ok'); reload(true); } catch (e) { toast(e.message, 'error'); throw e; }
+      }} />}
       {ej && <Confirm title="خروج امن" okText="خروج امن" text={`داده‌ها کامل روی «${ej.name}» نوشته و حافظه جدا می‌شود. بعد از پیام موفقیت می‌توانید آن را بیرون بکشید.`} onClose={() => setEj(null)} onOk={async () => {
         try { const r = await post(`/storage/devices/${encodeURIComponent(ej.id)}/eject`); if (r && r.ok === false) throw new Error(r.msg || 'خروج انجام نشد'); toast('حافظه با امنیت جدا شد؛ می‌توانید آن را بیرون بکشید', 'ok'); reload(); } catch (e) { toast(e.message, 'error'); throw e; }
       }} />}
@@ -93,6 +127,7 @@ function Browser() {
           <Btn kind="ghost sm" icon="refresh" onClick={() => reload()} />
         </div>
       </div>
+      {drive && drive.protected && <div className="small muted">🔒 این حافظه محافظت‌شده (فقط‌خواندنی) است؛ کپی روی آن، جابه‌جایی، تغییر نام، ساخت پوشه و حذف غیرفعال است.</div>}
       <div className="crumbs"><button onClick={() => go('')}>ریشه</button>{path.split('/').filter(Boolean).map((p, i, a) => <React.Fragment key={i}>/<button onClick={() => go(a.slice(0, i + 1).join('/'))}>{p}</button></React.Fragment>)}</div>
       <Err error={st.error} retry={reload} />
       <Card pad={false}><div className="card-b">

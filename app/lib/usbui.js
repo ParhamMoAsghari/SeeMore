@@ -29,9 +29,10 @@ module.exports = function createUsb(bale, store, present, hooks = {}) {
   const uuidOf = (x) => x.uuid || x.id;
   const ep = (x) => S.endpoint(x);
 
-  const driveLine = (x) => {
+  const driveLine = (x) => lineOf(x, true); // also used as ds.map(driveLine)
+  const lineOf = (x, health) => {
     const pct = x.total ? Math.round((x.used / x.total) * 100) : 0;
-    return `💾 ${x.title}${x.title !== x.name ? ` (${x.name})` : ''}\n   ${x.fsName}${x.ro ? ' · فقط‌خواندنی' : ''} · آزاد ${U.bytes(x.free)} از ${U.bytes(x.total)}\n   ${U.bar(pct)} ${pct}% پر${x.fsck ? `\n   🩺 ${x.fsck}` : ''}`;
+    return `💾 ${x.title}${x.title !== x.name ? ` (${x.name})` : ''}\n   ${S.modeLabel(x)}\n   ${x.fsName} · آزاد ${U.bytes(x.free)} از ${U.bytes(x.total)}\n   ${U.bar(pct)} ${pct}% پر${health && S.fsckProblem(x.fsck) ? `\n   ${S.fsckLabel(x.fsck)}` : ''}`;
   };
   const noDrive = '💾 هیچ حافظه‌ی خارجی (فلش یا هارد) به سرور وصل نیست.\n\nحافظه را به یکی از پورت‌های USB سرور وصل کن؛ چند ثانیه بعد خبرت می‌کنم.';
 
@@ -43,7 +44,7 @@ module.exports = function createUsb(bale, store, present, hooks = {}) {
     if (act.length) text += `\n\n⏳ ${fa(act.length)} کار انتقال فعال، در صف یا منتظر حافظه است.`;
     const rows = [];
     for (const x of ds) {
-      rows.push([btn(`📂 ${short(x.title, 22)}`, `ub:${x.id}`), btn('⏏️ جداسازی', `ue:${x.id}`)]);
+      rows.push([btn(`📂 ${short(x.title, 22)}`, `ub:${x.id}`), btn(x.protected ? '🔒 محافظت' : '⚙️ حافظه', `uM:${x.id}`), btn('⏏️ جداسازی', `ue:${x.id}`)]);
       if (can('usb_import')) rows.push([btn(`📤 انتقال «${short(x.title, 16)}» به سرور`, `uiS:${x.id}`)]);
     }
     if (ds.length && can('usb_copy')) rows.push([btn('📥 کپی از کتابخانه روی حافظه', 'uc')]);
@@ -71,7 +72,7 @@ module.exports = function createUsb(bale, store, present, hooks = {}) {
     const mv = d.usbMove;
     let text = '';
     if (mv) text += `${mv.op === 'move' ? '✂️ جابه‌جایی' : '📋 کپی'} «${short(mv.name, 40)}» از ${mv.driveName}\nپوشه‌ی مقصد را باز کن و «${mv.op === 'move' ? 'انتقال' : 'کپی'} به اینجا» را بزن.\n\n`;
-    text += `📂 ${x.name}${rel ? '/' + rel : ''}\n💽 ${x.fsName}${x.ro ? ' · فقط‌خواندنی' : ''} · آزاد ${U.bytes(x.free)} از ${U.bytes(x.total)}\n\n`;
+    text += `📂 ${x.name}${rel ? '/' + rel : ''}\n💽 ${x.fsName} · ${S.modeLabel(x)} · آزاد ${U.bytes(x.free)} از ${U.bytes(x.total)}\n\n`;
     text += ents.length ? `📁 ${fa(dirs)} پوشه · 📄 ${fa(files)} فایل${files ? ` (${U.bytes(fsize)})` : ''}${pages > 1 ? `\nصفحه‌ی ${fa(page + 1)} از ${fa(pages)}` : ''}` : 'این پوشه خالی است.';
     const rows = ents.slice(page * BROWSE_PAGE, (page + 1) * BROWSE_PAGE).map((e, i) => {
       const k = page * BROWSE_PAGE + i;
@@ -147,7 +148,8 @@ module.exports = function createUsb(bale, store, present, hooks = {}) {
     const src = S.readDrives().find((y) => uuidOf(y) === mv.uuid || y.id === mv.drive);
     if (!src) { d.usbMove = null; store.save(); return bale.answer(cb.id, 'حافظه‌ی مبدأ دیگر وصل نیست', true); }
     const dst = needDrive(b.id);
-    if (dst.ro) return bale.answer(cb.id, 'این حافظه فقط‌خواندنی است', true);
+    if (!S.writable(dst)) return bale.answer(cb.id, S.writeErr(dst).message, true);
+    if (mv.op === 'move' && !S.writable(src)) return bale.answer(cb.id, S.writeErr(src).message, true);
     busyCheck(src, mv.rel); busyCheck(dst, b.rel || '.');
     const same = src.id === dst.id;
     const srcAbs = S.safeJoin(src.mount, mv.rel), dirAbs = S.safeJoin(dst.mount, b.rel);
@@ -318,6 +320,68 @@ module.exports = function createUsb(bale, store, present, hooks = {}) {
     await present('usb', mid, `✅ به صف کپی اضافه شد${ahead ? ` (${fa(ahead)} کار جلوتر در صف است)` : ''}.\nپیشرفت را در پیام بعدی می‌بینی.`, kb([btn('↩️ حافظه‌ها', 'ud'), btn('✖️ بستن', 'close')]));
   }
 
+  // ---------- protection / health (owner & admin only for changes) ----------
+  async function driveMenu(mid, id, note = '') {
+    const x = needDrive(id);
+    const own = can('admin');
+    const L = [`💾 ${x.title}`, `وضعیت: ${S.modeLabel(x)}`, `🩺 آخرین بررسی سلامت: ${S.fsckLabel(x.fsck) || '—'}${x.fsckKind === 'repair' ? ' (با تعمیر)' : ''}`];
+    if (x.protected) L.push('', 'روی این حافظه هیچ چیزی نوشته نمی‌شود: کپی، جابه‌جایی، تغییر نام، ساخت پوشه، حذف و تعمیر غیرفعال است. مرور، مشخصات فایل‌ها، انتقال به سرور و دانلود مجاز است.');
+    else L.push('', 'نوشتن روی این حافظه مجاز است.');
+    if (note) L.push('', note);
+    const rows = [];
+    if (own) rows.push([x.protected ? btn('✏️ اجازهٔ نوشتن', `uMw:${x.id}`) : btn('🔒 محافظت‌شده', `uMp:${x.id}`)]);
+    if (can('usb_view')) rows.push([btn('🩺 بررسی سلامت (بدون تغییر)', `uMc:${x.id}`)]);
+    if (own && !x.protected) rows.push([btn('🛠 تعمیر فایل‌سیستم', `uMr:${x.id}`)]);
+    rows.push([btn('📂 محتوا', `ub:${x.id}`), btn('↩️ حافظه‌ها', 'ud')]);
+    return present('usb', mid, L.join('\n'), kb(...rows));
+  }
+  async function driveAction(cb, mid, a, id) {
+    const x = needDrive(id);
+    const own = can('admin');
+    const busy = J.driveBusy(uuidOf(x));
+    switch (a) {
+      case 'uM': await bale.answer(cb.id); return driveMenu(mid, id);
+      case 'uMw': if (!own) return bale.answer(cb.id, 'فقط مالک', true); await bale.answer(cb.id);
+        return present('usb', mid, `⚠️ اجازهٔ نوشتن روی «${x.title}»\n\nبا این کار حافظه دوباره با امکان نوشتن وصل می‌شود و ربات، پنل و کارهای انتقال می‌توانند روی آن بنویسند، فایل جابه‌جا یا حذف کنند. این تنظیم برای همین حافظه ذخیره می‌شود و دفعهٔ بعد هم قابل نوشتن وصل می‌شود.\nاگر اطلاعات مهمی روی آن است و نسخهٔ دیگری ندارد، محافظت را برندار.\n\nمطمئنی؟`,
+          kb([btn('✏️ بله، اجازهٔ نوشتن بده', `uMW:${x.id}`)], [btn('✖️ نه، محافظت‌شده بماند', `uM:${x.id}`)]));
+      case 'uMp': if (!own) return bale.answer(cb.id, 'فقط مالک', true); await bale.answer(cb.id);
+        return present('usb', mid, `🔒 محافظت از «${x.title}»\n\nداده‌های در حال نوشتن کامل روی حافظه ثبت می‌شوند و حافظه فقط‌خواندنی می‌شود. از این به بعد هر بار هم که وصل شود فقط‌خواندنی می‌ماند.${busy ? '\n\n⚠️ الان یک کار انتقال از این حافظه استفاده می‌کند؛ اول صبر کن یا لغوش کن.' : ''}`,
+          kb(busy ? [] : [btn('🔒 بله، محافظت کن', `uMP:${x.id}`)], [btn('↩️ انصراف', `uM:${x.id}`)]));
+      case 'uMW': case 'uMP': {
+        if (!own) return bale.answer(cb.id, 'فقط مالک', true);
+        if (busy) return bale.answer(cb.id, 'یک کار انتقال الان از این حافظه استفاده می‌کند.', true);
+        await bale.answer(cb.id, '⏳ ...');
+        const mode = a === 'uMW' ? 'writable' : 'protected';
+        const r = await S.setMode(x.id, mode);
+        P.audit(ctx.uid(), 'admin', 'usb_mode', `${x.name} ${mode} ${r.ok ? 'ok' : r.msg}`);
+        return driveMenu(mid, id, r.ok ? (mode === 'writable' ? '✅ نوشتن مجاز شد.' : '✅ حافظه محافظت‌شده و فقط‌خواندنی شد.') : `⚠️ انجام نشد: ${/busy/.test(r.msg || '') ? 'یک برنامه از حافظه استفاده می‌کند.' : U.trunc(r.msg, 150)}`);
+      }
+      case 'uMc': {
+        if (!can('usb_view')) return bale.answer(cb.id);
+        if (busy && !x.ro) return bale.answer(cb.id, 'یک کار انتقال الان روی این حافظه می‌نویسد؛ بعد از آن بررسی کن.', true);
+        await bale.answer(cb.id, '🩺 در حال بررسی...');
+        await present('usb', mid, `🩺 بررسی سلامت «${x.title}» (فقط خواندن، بدون هیچ تغییری)...`, null);
+        const r = await S.checkDrive(x.id);
+        P.audit(ctx.uid(), 'usb_view', 'usb_check', `${x.name} ${r.msg}`);
+        return driveMenu(mid, id, r.ok ? `🩺 نتیجه: ${S.fsckLabel(r.msg)}${S.fsckProblem(r.msg) ? '؛ بعداً چک کن.' : ''}` : `⚠️ بررسی انجام نشد: ${U.trunc(r.msg, 150)}`);
+      }
+      case 'uMr': if (!own) return bale.answer(cb.id, 'فقط مالک', true); if (x.protected) return bale.answer(cb.id, S.writeErr(x).message, true); await bale.answer(cb.id);
+        return present('usb', mid, `🛠 تعمیر فایل‌سیستم «${x.title}»\n\n⚠️ هشدار جدی: تعمیر، ساختار فایل‌سیستم را تغییر می‌دهد. اگر حافظه واقعاً خراب باشد ممکن است بعضی فایل‌ها حذف، کوتاه یا به اسم FSCK*.REC منتقل شوند. اول از اطلاعات مهم نسخهٔ پشتیبان بگیر.\nحافظه در طول تعمیر جدا و بعد دوباره وصل می‌شود. فرمت انجام نمی‌شود.\n\nمطمئنی؟`,
+          kb(busy ? [] : [btn('🛠 بله، تعمیر کن', `uMR:${x.id}`)], [btn('✖️ انصراف', `uM:${x.id}`)]));
+      case 'uMR': {
+        if (!own) return bale.answer(cb.id, 'فقط مالک', true);
+        if (x.protected) return bale.answer(cb.id, S.writeErr(x).message, true);
+        if (busy) return bale.answer(cb.id, 'یک کار انتقال الان از این حافظه استفاده می‌کند.', true);
+        await bale.answer(cb.id, '🛠 ...');
+        await present('usb', mid, `🛠 در حال تعمیر «${x.title}»...`, null);
+        const r = await S.repairDrive(x.id);
+        P.audit(ctx.uid(), 'admin', 'usb_repair', `${x.name} ${r.msg}`);
+        return driveMenu(mid, id, r.ok ? `🛠 نتیجه: ${S.fsckLabel(r.msg)}` : `⚠️ تعمیر انجام نشد: ${/refused/.test(r.msg || '') ? 'حافظه محافظت‌شده است.' : /busy/.test(r.msg || '') ? 'یک برنامه از حافظه استفاده می‌کند.' : U.trunc(r.msg, 150)}`);
+      }
+    }
+    return bale.answer(cb.id);
+  }
+
   // ---------- eject ----------
   async function doEject(cb, mid, id) {
     const x = S.getDrive(id);
@@ -344,6 +408,7 @@ module.exports = function createUsb(bale, store, present, hooks = {}) {
     try {
       if (/^ui/.test(a) && hooks.importCb) return await hooks.importCb(cb, a, p);
       if (/^uj/.test(a) && hooks.jobsCb) return await hooks.jobsCb(cb, a, p);
+      if (/^uM/.test(a)) return await driveAction(cb, mid, a, p[0]);
       switch (a) {
         case 'ud': await bale.answer(cb.id); return showDrives(mid);
         case 'ub': await bale.answer(cb.id); return browse(mid, p[0], '', 0);
@@ -439,25 +504,32 @@ module.exports = function createUsb(bale, store, present, hooks = {}) {
         for (const x of ds) {
           if (d.usbKnown[x.id] === x.mountedAt) continue;
           d.usbKnown[x.id] = x.mountedAt; store.save();
-          S.ensureMarker(x).catch(() => {}); // seemore identity marker (.seemore/id) when the drive is writable
+          // nothing is written on plug-in (no identity marker); a marker is only written by a job on a writable drive
           const waiting = J.list({ active: true }).filter((j) => j.status === 'waiting' && [j.data.src, j.data.dst].some((e) => e && e.type === 'usb' && J.driveOf(e) && J.driveOf(e).id === x.id));
           const foreign = J.list({ active: true }).filter((j) => j.status === 'waiting' && [j.data.src, j.data.dst].some((e) => e && e.type === 'usb' && !J.driveOf(e) && (e.uuid && e.uuid === x.uuid || e.name === x.name)));
-          const warn = (x.ro ? '\n⚠️ فقط‌خواندنی وصل شد (ممکن است حافظه خطا داشته باشد یا قبلاً درست جدا نشده باشد).' : x.fstype === 'vfat' ? '\nℹ️ فرمت FAT32 است؛ فایل‌های بزرگ‌تر از ۴ گیگابایت روی آن کپی نمی‌شوند.' : '')
+          // minimal notice: a health line only when the drive was not ejected safely (dirty) or has real errors
+          const hn = S.healthNote(x.fsck);
+          const warn = (hn ? '\n' + hn : '') + (!x.ro && x.fstype === 'vfat' ? '\nℹ️ FAT32: فایل‌های بزرگ‌تر از ۴ گیگابایت روی آن کپی نمی‌شوند.' : '')
             + (waiting.length ? `\n▶️ ${fa(waiting.length)} کار نیمه‌کاره‌ی این حافظه خودکار ادامه پیدا می‌کند.` : '')
             + (foreign.length ? `\n⚠️ این حافظه شبیه حافظه‌ی یک کار نیمه‌کاره است ولی هویتش یکی نیست (فلش دیگر یا فرمت‌شده)؛ آن کار روی این حافظه ادامه پیدا نمی‌کند.` : '');
           fan('usb_view', () => {
             const rows = [[btn('📂 مشاهده‌ی محتوا', `ub:${x.id}`)]];
             if (P.can(ctx.uid(), 'usb_import')) rows.push([btn('📤 انتقال به سرور', `uiS:${x.id}`)]);
             if (!x.ro && P.can(ctx.uid(), 'usb_copy')) rows.push([btn('📥 کپی از کتابخانه', 'uc')]);
-            rows.push([btn('⏏️ جداسازی امن', `ue:${x.id}`)]);
-            return bale.send(`🔌 حافظه‌ی جدید وصل شد\n\n${driveLine(x)}${warn}`, kb(...rows));
+            rows.push([btn(x.protected ? '🔒 محافظت و سلامت' : '⚙️ حافظه و سلامت', `uM:${x.id}`), btn('⏏️ جداسازی امن', `ue:${x.id}`)]);
+            return bale.send(`🔌 حافظه‌ی جدید وصل شد\n\n${lineOf(x, false)}${warn}`, kb(...rows));
           }).catch(() => {});
         }
         for (const id of Object.keys(d.usbKnown)) {
           if (now.has(id)) continue;
           delete d.usbKnown[id]; store.save();
           const ej = d.usbEjecting && d.usbEjecting.id === id && Date.now() - d.usbEjecting.t < 120000;
-          if (!first && !ej) fan('usb_view', () => bale.send('🔌 یک حافظه از سرور جدا شد.\nاگر قبلش «جداسازی امن» را نزده بودی، بعداً حافظه را روی کامپیوتر بررسی کن.')).catch(() => {});
+          // safe eject (bot, panel or a clean unmount before unplugging) -> no message at all;
+          // pulled out while still mounted -> one short line
+          const g = S.readGone(id);
+          const fresh = g && Date.now() / 1000 - g.t < 600;
+          const unsafe = fresh ? g.safe === false : !ej;
+          if (!first && unsafe) fan('usb_view', () => bale.send(`⚠️ ${fresh && g.name ? `«${g.name}» ` : 'حافظه '}بدون جداسازی امن جدا شد؛ بعداً چکش کن.`)).catch(() => {});
         }
         first = false;
       } catch (e) { U.log('warn', 'usb watcher: ' + e.message); }

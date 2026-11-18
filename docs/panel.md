@@ -13,7 +13,8 @@ panel account for them. Sessions, CSRF, lockouts: [security.md](security.md).
 ## Pages
 | page | what |
 |---|---|
-| داشبورد (Dashboard) | active jobs and downloads, drives, health summary, recent items |
+| داشبورد (Dashboard) | active jobs and downloads, drives, health summary, recent items, Services card |
+| سرویس‌ها (Services) | launcher for the media apps this user may open (single sign-on when it is on) |
 | جست‌وجو (Search) | search movies/series with posters, quality and season choice, request |
 | کتابخانه (Library) | movies and series, files, subtitles, re-search, manual release grab, delete |
 | دانلودها (Downloads) | live qBittorrent list, pause/resume/remove |

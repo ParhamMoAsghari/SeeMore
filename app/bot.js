@@ -88,6 +88,7 @@ function sweepGrants() {
 
 // daily backup of the bot DB + configs to /data/backups/seemore (14 days kept)
 const SET = require('./lib/settings');
+const S = require('./lib/usb');
 async function backup(force) {
   const BK = SET.get('backup.dir');
   try {
@@ -115,6 +116,10 @@ async function main() {
   notify.startServer();
   notify.startWatcher();
   h.usb.startWatcher();
+  // drive write-protection defaults live in settings; the host helper keeps its own fail-safe copy
+  const pushUsbPolicy = () => S.pushPolicy({ default_mode: SET.get('usb.default_mode'), auto_repair: SET.get('usb.auto_repair') })
+    .then((r) => U.log(r.ok ? 'info' : 'warn', `usb policy -> host: ${r.msg}`)).catch((e) => U.log('warn', 'usb policy push: ' + e.message));
+  pushUsbPolicy(); SET.ev.on('change', (k) => { if (k === 'usb.default_mode' || k === 'usb.auto_repair') pushUsbPolicy(); });
   await I.cleanStaging().catch((e) => U.log('warn', 'staging cleanup: ' + e.message));
   const b = J.boot();
   if (b.resumed.length || b.waiting.length) h.jobsui.bootNotice(b);

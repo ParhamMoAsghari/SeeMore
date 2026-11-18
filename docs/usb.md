@@ -9,8 +9,9 @@ Installed by `sudo make host` / `sudo sh host/install.sh --usb` (see [installati
 |---|---|---|
 | `99-usb-automount.rules` | `/etc/udev/rules.d/` | for USB block devices with a filesystem: start `usb-mount@<kname>.service` |
 | `usb-mount@.service` (+ `.d/fsck-timeout.conf`) | `/etc/systemd/system/` | runs `usb-automount add/remove <kname>`; bound to the device, so unplug unmounts |
-| `usb-automount` | `/usr/local/sbin/` | checks + repairs (fsck), mounts, writes the drive JSON, handles eject requests |
-| `usb-eject.path` / `usb-eject.service` | `/etc/systemd/system/` | watches `/run/usb-automount/requests` for eject requests from the container |
+| `usb-automount` | `/usr/local/sbin/` | mounts (read-only by default), check-only or repairing fsck, writes the drive JSON, handles eject / mode / check / repair requests |
+| `usbpol` | `/usr/local/sbin/` | per-drive write-protection policy (`/etc/seemore/usb-policy.json`) |
+| `usb-eject.path` / `usb-eject.service` | `/etc/systemd/system/` | watches `/run/usb-automount/requests` for eject, mode, check, repair and policy requests from the container |
 | `usb-automount.tmpfiles` | `/etc/tmpfiles.d/usb-automount.conf` | runtime dirs (requests dir writable by `SEEMORE_UID`) |
 | — | `/etc/seemore/usb.conf` | `USB_BASE`, `SEEMORE_UID`, `SEEMORE_GID` written by the installer |
 
@@ -19,9 +20,10 @@ Behaviour:
   `/run/usb-automount/allow-loop` exists (testing).
 * Filesystems: vfat (FAT32), exfat, ntfs (ntfs3 kernel driver, ntfs-3g fallback, read-only if both fail), ext2/3/4,
   btrfs, xfs.
-* **Before mounting**, the drive is checked and repaired (`fsck.vfat -a`, `fsck.exfat -p`, `ntfsfix -d`,
-  `e2fsck -p`, with timeouts) — an unclean unplug or a power cut leaves FAT/exFAT/NTFS dirty. The result
-  (`clean`, `repaired`, `errors(n)`) is shown in the bot/panel.
+* **Before mounting**, an unknown drive is **protected**: the block device is set read-only, fsck runs check-only
+  (`-n`), and the mount is read-only. A drive marked writable can be repaired (`fsck.vfat -a`, `fsck.exfat -p`,
+  `ntfsfix -d`, `e2fsck -p`, with timeouts). The result (`clean`, `dirty`, `repaired`, `errors(n)`) is shown in the
+  bot/panel. Details: [usb-protection.md](usb-protection.md).
 * Mounted under `$USB_BASE/<label>` as `SEEMORE_UID:SEEMORE_GID` (`flush` on vfat); state for the core in
   `/run/usb-automount/drives/<id>.json` (label, fs, size, serial, PARTUUID, UUID, fsck result).
 * Safe eject: the core writes `requests/<id>.eject`; the helper syncs, unmounts, powers the device off (udisks when

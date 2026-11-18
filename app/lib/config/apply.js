@@ -19,7 +19,7 @@ const U = require('../util');
 
 const SELF = ctl.SELF;
 function classOf(key) {
-  if (key.startsWith('domains.')) return { cls: 'caddy', target: 'caddy' };
+  if (key.startsWith('domains.') || (key.startsWith('sso.') && !key.startsWith('sso.jellyfin_'))) return { cls: 'caddy', target: 'caddy' };
   if (key === 'net.api_port') return { cls: 'recreate', target: SELF, env: 'API_PORT', caddy: true };
   if (key === 'net.links_port') return { cls: 'recreate', target: SELF, env: 'DL_PORT', caddy: true };
   if (key === 'container.mem_limit') return { cls: 'recreate', target: SELF, env: 'SEEMORE_MEM_LIMIT' };

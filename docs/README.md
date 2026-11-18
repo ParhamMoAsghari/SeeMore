@@ -10,7 +10,8 @@
 | Telegram bot (default) | [bot-telegram.md](bot-telegram.md) |
 | Bale bot (optional) | [bot-bale.md](bot-bale.md) |
 | Job engine | [job-engine.md](job-engine.md) |
-| External drives (USB) and host helper | [usb.md](usb.md) |
+| External drives (USB) and host helper | [usb.md](usb.md), [usb-protection.md](usb-protection.md) |
+| Single sign-on | [sso.md](sso.md), [sso.fa.md](sso.fa.md) |
 | Imports from drives | [imports.md](imports.md) |
 | Share / download links | [shares.md](shares.md) |
 | Persian subtitles (subfa) | [subfa.md](subfa.md) |

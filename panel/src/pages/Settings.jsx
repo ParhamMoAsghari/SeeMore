@@ -68,8 +68,8 @@ function SettingsForm({ entries, reload, note }) {
                 {LABELS[e.key] && e.description && <div className="muted small">{e.description}</div>}
               </div>
               <div className="setting-c">
-                <Input e={e} value={e.key in pending ? (pending[e.key] === null ? (e.default ?? '') : pending[e.key]) : e.value} onChange={(v) => setPending((p) => { const c = { ...p }; if (JSON.stringify(v) === JSON.stringify(e.value)) delete c[e.key]; else c[e.key] = v; return c; })} />
-                {e.overridden && e.scope !== 'qbit' && !(e.key in pending) && <button className="link small" onClick={() => setPending({ ...pending, [e.key]: null })}>بازگشت به پیش‌فرض</button>}
+                <Input e={e} value={e.key in pending ? pending[e.key] : e.value} onChange={(v) => setPending((p) => { const c = { ...p }; if (JSON.stringify(v) === JSON.stringify(e.value)) delete c[e.key]; else c[e.key] = v; return c; })} />
+                {e.overridden && e.scope !== 'qbit' && !(e.key in pending) && <button className="link small" onClick={() => setPending({ ...pending, [e.key]: e.scope === 'subfa' ? null : e.default })}>بازگشت به پیش‌فرض</button>}
               </div>
             </div>))}
         </Card>))}
@@ -81,7 +81,7 @@ function SettingsForm({ entries, reload, note }) {
 
 // ---------- tabs ----------
 const GENERAL = ['features', 'bot', 'notify', 'links', 'panel', 'usb', 'jobs', 'schedule', 'backup', 'acl', 'jellyfin', 'ctl'];
-const NETWORK = ['domains', 'net', 'container'];
+const NETWORK = ['domains', 'sso', 'net', 'container'];
 
 function CaddyPreview() {
   const [c, re, st] = useLoad(() => get('/settings/caddy'), []);

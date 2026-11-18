@@ -26,12 +26,20 @@ const PERMS = [
   ['usb_manage', '✂️ مدیریت فایل‌های حافظه (جابه‌جایی، تغییر نام، حذف)'],
   ['files', '🗂 مرور فایل‌های سرور و مشخصات'],
   ['links', '🔗 ساخت لینک دانلود'],
+  // single sign-on: which services the panel may sign this user in to (see sso.js)
+  ['svc.jellyfin', '🔑 ورود به Jellyfin'],
+  ['svc.seerr', '🔑 ورود به Seerr'],
+  ['svc.radarr', '🔑 ورود به Radarr'],
+  ['svc.sonarr', '🔑 ورود به Sonarr'],
+  ['svc.prowlarr', '🔑 ورود به Prowlarr'],
+  ['svc.bazarr', '🔑 ورود به Bazarr'],
+  ['svc.qbit', '🔑 ورود به qBittorrent'],
 ];
 const KEYS = PERMS.map((p) => p[0]);
 const LABEL = Object.fromEntries(PERMS);
 const PRESETS = {
-  viewer: ['library', 'calendar', 'notify'],
-  family: ['request', 'library', 'downloads', 'calendar', 'notify', 'usb_view', 'usb_copy', 'links'],
+  viewer: ['library', 'calendar', 'notify', 'svc.jellyfin'],
+  family: ['request', 'library', 'downloads', 'calendar', 'notify', 'usb_view', 'usb_copy', 'links', 'svc.jellyfin', 'svc.seerr'],
   full: KEYS.slice(),
 };
 

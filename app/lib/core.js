@@ -55,10 +55,35 @@ const METHODS = {
   'usb.rename': ['usb_manage', (p, uid) => { const x = drive(p.drive); if (J.pathBusy(S.safeJoin(x.mount, String(p.rel || '')))) throw new Error('path busy'); P.audit(uid, 'usb_manage', 'rename', `${x.name}/${p.rel} -> ${p.name}`); return S.renameOn(x, String(p.rel), String(p.name)); }],
   'usb.move': ['usb_manage', (p, uid) => { const x = drive(p.drive); if (J.pathBusy(S.safeJoin(x.mount, String(p.rel || '')))) throw new Error('path busy'); P.audit(uid, 'usb_manage', 'move', `${x.name}/${p.rel} -> ${p.dest}`); return S.moveOn(x, String(p.rel), String(p.dest || ''), p.mode || 'keep'); }],
   'usb.delete': ['usb_manage', (p, uid) => { const x = drive(p.drive); if (!p.rel || J.pathBusy(S.safeJoin(x.mount, String(p.rel || '')))) throw new Error('path busy'); P.audit(uid, 'usb_manage', 'delete', `${x.name}/${p.rel}`); return S.removePath(x, String(p.rel)); }],
+  // write protection / health. Changing the mode or repairing is owner/admin only and needs confirm:true
+  'usb.mode': ['admin', async (p, uid) => {
+    const x = drive(p.drive); const mode = p.mode === 'writable' ? 'writable' : p.mode === 'protected' ? 'protected' : null;
+    if (!mode) throw Object.assign(new Error('mode must be protected or writable'), { status: 400 });
+    if (p.confirm !== true) throw Object.assign(new Error('confirmation required (confirm: true)'), { status: 428, user: true });
+    if (J.driveBusy(x.uuid || x.id)) throw Object.assign(new Error('یک کار انتقال الان از این حافظه استفاده می‌کند'), { status: 409, user: true });
+    const r = await S.setMode(x.id, mode); P.audit(uid, 'admin', 'usb_mode', `${x.name} ${mode} ${r.ok ? 'ok' : r.msg}`);
+    if (!r.ok) throw Object.assign(new Error(r.msg || 'failed'), { status: /busy/.test(r.msg || '') ? 409 : 502 });
+    return { ok: true, mode, drive: S.getDrive(x.id) };
+  }],
+  'usb.check': ['usb_view', async (p, uid) => {
+    const x = drive(p.drive);
+    if (!x.ro && J.driveBusy(x.uuid || x.id)) throw Object.assign(new Error('یک کار انتقال الان روی این حافظه می‌نویسد'), { status: 409, user: true });
+    const r = await S.checkDrive(x.id); P.audit(uid, 'usb_view', 'usb_check', `${x.name} ${r.msg}`);
+    return { ok: !!r.ok, result: r.msg, label: S.fsckLabel(r.msg), log: r.x && r.x.log || null };
+  }],
+  'usb.repair': ['admin', async (p, uid) => {
+    const x = drive(p.drive);
+    if (x.protected) throw Object.assign(new Error(S.PROTECTED_MSG), { status: 403, user: true });
+    if (p.confirm !== true) throw Object.assign(new Error('confirmation required (confirm: true)'), { status: 428, user: true });
+    if (J.driveBusy(x.uuid || x.id)) throw Object.assign(new Error('یک کار انتقال الان از این حافظه استفاده می‌کند'), { status: 409, user: true });
+    const r = await S.repairDrive(x.id); P.audit(uid, 'admin', 'usb_repair', `${x.name} ${r.msg}`);
+    if (!r.ok) throw Object.assign(new Error(r.msg || 'failed'), { status: /refused/.test(r.msg || '') ? 403 : /busy/.test(r.msg || '') ? 409 : 502 });
+    return { ok: true, result: r.msg, label: S.fsckLabel(r.msg), log: r.x && r.x.log || null };
+  }],
   'usb.eject': ['usb_view', (p, uid) => { const x = drive(p.drive); if (J.driveBusy(x.uuid || x.id)) throw Object.assign(new Error('a transfer is using this drive'), { status: 409 }); P.audit(uid, 'usb_view', 'eject', x.name); return S.eject(x.id); }],
   // copy library files to a drive: files = absolute paths under /data/media; subtitles next to videos are included
   'usb.copy': ['usb_copy', async (p, uid) => {
-    const x = drive(p.drive); const dir = String(p.dest || '').replace(/^\/+/, '');
+    const x = S.assertWritable(drive(p.drive)); const dir = String(p.dest || '').replace(/^\/+/, '');
     const fs = require('fs'); const files = [];
     for (const f of p.files || []) {
       const src = underMedia(f); const st = fs.statSync(src);

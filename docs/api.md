@@ -12,7 +12,7 @@ Full machine-readable spec: [`app/lib/api/openapi.yaml`](../app/lib/api/openapi.
 * Owner = `PANEL_OWNER_USER`, password = the shared system password (env var named by `PANEL_OWNER_PASS_ENV`).
   Granted bot users can get panel accounts (`PUT /panel-accounts/{username}`); a session dies when the grant expires.
 * Permissions: same keys as the bot (`request, library, lib_delete, downloads, server, calendar, notify, usb_view,
-  usb_copy, usb_import, usb_manage, files, links`), `admin` = owner. `x-permission` in the spec names each one.
+  usb_copy, usb_import, usb_manage, files, links`, plus `svc.*` for single sign-on), `admin` = owner. `x-permission` in the spec names each one.
 
 ## Conventions
 * JSON in/out; errors `{error}` with 400/401/403/404/409/429/5xx. Disruptive settings → `409 {needsConfirm, plan}`;
@@ -32,7 +32,8 @@ Full machine-readable spec: [`app/lib/api/openapi.yaml`](../app/lib/api/openapi.
 | media | `GET /media/search`, `GET /media/qualities`, `POST /media/requests`, `GET /media/posters/{ref}` (proxied, cached) |
 | library | `GET /library?kind=m|s`, `/library/files`, `/library/movies/{id}`, `/library/series/{id}`, `DELETE /library/{kind}/{id}`, search / releases / grab |
 | downloads | `GET /downloads`, pause / resume / `DELETE` |
-| storage | `GET /storage/devices`, entries / metadata / mkdir / rename / move / delete / eject, `POST /storage/exports[/plan]`, `POST /storage/imports/scans`, rematch, `POST /storage/imports` |
+| storage | `GET /storage/devices`, entries / metadata / mkdir / rename / move / delete / eject / mode / check / repair, `POST /storage/exports[/plan]`, `POST /storage/imports/scans`, rematch, `POST /storage/imports` |
+| sso | `GET /sso/services` (launcher for the services this user may open), `GET/PUT/DELETE /sso/oidc/clients` (owner; OpenID Connect clients) |
 | files | `GET /files/roots`, `/files/{root}/entries`, `/files/{root}/metadata` (read-only) |
 | shares | `GET/POST /shares`, `GET/PATCH/DELETE /shares/{token}` |
 | jobs | `GET /jobs`, `/jobs/{id}`, `/jobs/{id}/events`, cancel / resume |

@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+# usbpol: drive write-protection policy store for usb-automount (seemore).
+# Policy file (root-owned, persistent): /etc/seemore/usb-policy.json
+#   {"default_mode": "protected"|"writable", "auto_repair": false,
+#    "drives": {"<key>": {"mode": "protected"|"writable", "serial":..,"partuuid":..,"uuid":..,"size":..,"label":..,"t":..}}}
+# Fail-safe: a missing / unreadable / invalid file means default_mode=protected, auto_repair=false.
+# usage:
+#   usbpol.py lookup <serial> <partuuid> <uuid> <size>       -> "<mode> <auto_repair 0|1> <key|->"
+#   usbpol.py set <mode> <serial> <partuuid> <uuid> <size> <label>
+#   usbpol.py default <json-request-file>                     (validated {"default_mode", "auto_repair"})
+#   usbpol.py show
+import json, os, sys, time, hashlib, tempfile
+PF = os.environ.get('USB_POLICY_FILE', '/etc/seemore/usb-policy.json')
+MODES = ('protected', 'writable')
+
+def load():
+    try:
+        j = json.load(open(PF))
+        if not isinstance(j, dict): raise ValueError
+    except Exception:
+        j = {}
+    if j.get('default_mode') not in MODES: j['default_mode'] = 'protected'
+    j['auto_repair'] = j.get('auto_repair') is True
+    if not isinstance(j.get('drives'), dict): j['drives'] = {}
+    return j
+
+def save(j):
+    d = os.path.dirname(PF); os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix='.usb-policy.')
+    with os.fdopen(fd, 'w') as f:
+        json.dump(j, f, indent=1, sort_keys=True); f.flush(); os.fsync(f.fileno())
+    os.chmod(tmp, 0o644); os.replace(tmp, PF)
+    dfd = os.open(d, os.O_RDONLY); os.fsync(dfd); os.close(dfd)
+
+def ident(serial, partuuid, uuid, size):
+    return {'serial': serial or None, 'partuuid': (partuuid or '').lower() or None, 'uuid': (uuid or '').upper() or None, 'size': int(size) if str(size).isdigit() and int(size) > 0 else None}
+
+def key_of(i):
+    return hashlib.sha256('|'.join(str(i[k] or '') for k in ('serial', 'partuuid', 'uuid', 'size')).encode()).hexdigest()[:16]
+
+def match(e, i):
+    # strong identity: size must be known and equal; no known field may conflict;
+    # with a serial: serial + (PARTUUID or UUID); without a serial (e.g. loop images): UUID (+PARTUUID if known)
+    for k in ('serial', 'partuuid', 'uuid', 'size'):
+        if e.get(k) and i.get(k) and str(e[k]) != str(i[k]): return False
+    if not (e.get('size') and i.get('size')): return False
+    same = lambda k: e.get(k) and i.get(k) and str(e[k]) == str(i[k])
+    if e.get('serial') or i.get('serial'):
+        return bool(same('serial') and (same('partuuid') or same('uuid')))
+    return bool(same('uuid'))
+
+def lookup(i):
+    j = load()
+    for k, e in j['drives'].items():
+        if isinstance(e, dict) and e.get('mode') in MODES and match(e, i):
+            return e['mode'], j['auto_repair'], k
+    return j['default_mode'], j['auto_repair'], None
+
+def main(a):
+    cmd = a[0] if a else ''
+    if cmd == 'lookup':
+        try:
+            m, r, k = lookup(ident(*a[1:5]))
+        except Exception:
+            m, r, k = 'protected', False, None
+        print(m, 1 if r else 0, k or '-'); return 0
+    if cmd == 'set':
+        mode = a[1]
+        if mode not in MODES: print('bad mode'); return 2
+        i = ident(*a[2:6])
+        if not i['size'] or not (i['serial'] or i['uuid'] or i['partuuid']): print('not enough identity'); return 2
+        j = load()
+        k = None
+        for kk, e in j['drives'].items():
+            if isinstance(e, dict) and match(e, i): k = kk; break
+        k = k or key_of(i)
+        j['drives'][k] = {**i, 'mode': mode, 'label': (a[6] if len(a) > 6 else '')[:64], 't': int(time.time())}
+        save(j); print(k); return 0
+    if cmd == 'default':
+        try:
+            r = json.load(open(a[1]))
+            assert isinstance(r, dict)
+        except Exception:
+            print('bad request'); return 2
+        j = load()
+        if r.get('default_mode') in MODES: j['default_mode'] = r['default_mode']
+        if isinstance(r.get('auto_repair'), bool): j['auto_repair'] = r['auto_repair']
+        save(j); print(j['default_mode'], 1 if j['auto_repair'] else 0); return 0
+    if cmd == 'show':
+        print(json.dumps(load(), indent=1)); return 0
+    print(__doc__ or 'usage'); return 2
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

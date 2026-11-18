@@ -48,7 +48,7 @@ function LinkDetail({ token, onClose, reload }) {
         <UrlRow label="لینک اینترنتی" url={l.urls.page} onCopy={(u) => copy(u, toast)} />
         {l.urls.pageLan && !l.urls.pageLan.startsWith('/') && <UrlRow label="لینک شبکه‌ی داخلی" url={l.urls.pageLan} onCopy={(u) => copy(u, toast)} />}
         <div className="muted small">ساخته‌شده {dateTime(l.created)} · {l.expires ? `انقضا ${dateTime(l.expires)}` : 'بدون انقضا'}{l.last_dl ? ` · آخرین دانلود ${ago(l.last_dl)}` : ''}</div>
-        <Card title="فایل‌ها"><div style={{ maxHeight: 180, overflowY: 'auto' }}>{l.items.map((it, i) => <div key={i} className="small ltr mono ellipsis">{it.arc || it.path} <span className="muted">({bytes(it.size)})</span></div>)}</div></Card>
+        <Card title="فایل‌ها"><div style={{ maxHeight: 180, overflowY: 'auto' }}>{l.items.map((it, i) => <div key={i} className="small ltr mono fname">{it.arc || it.path} <span className="muted">({bytes(it.size)})</span></div>)}</div></Card>
         <Card title="آخرین دانلودها">{!l.hits.length ? <Empty>هنوز دانلودی نشده.</Empty> : <table className="tbl"><tbody>{l.hits.map((h) => <tr key={h.id}><td>{dateTime(h.t)}</td><td className="ltr mono">{h.ip}</td><td>{h.status}</td><td>{bytes(h.bytes)}</td></tr>)}</tbody></table>}</Card>
         {l.state !== 'revoked' && <div className="row gap wrap">
           <select value={exp} onChange={(e) => setExp(e.target.value)} style={{ width: 'auto' }}>{EXP.map(([v, x]) => <option key={v} value={v}>{x}</option>)}</select>
@@ -60,7 +60,7 @@ function LinkDetail({ token, onClose, reload }) {
     </Modal>
   );
 }
-const UrlRow = ({ label, url, onCopy }) => <Field label={label}><div className="row gap"><input readOnly value={url} className="ltr mono" onFocus={(e) => e.target.select()} /><Btn kind="sm" icon="copy" onClick={() => onCopy(url)} /><a href={url} target="_blank" rel="noreferrer"><Btn kind="sm ghost" icon="link" /></a></div></Field>;
+const UrlRow = ({ label, url, onCopy }) => <Field label={label}><div className="urlrow"><input readOnly value={url} className="ltr mono" onFocus={(e) => e.target.select()} /><Btn kind="sm" icon="copy" onClick={() => onCopy(url)} /><a href={url} target="_blank" rel="noreferrer"><Btn kind="sm ghost" icon="link" /></a></div></Field>;
 
 export default function Links() {
   const loc = useLocation(); const { me } = useApp();

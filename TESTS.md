@@ -6,8 +6,11 @@ recovering**, **(c) the final state of the data**, and **PASS/FAIL**.
 **Common acceptance criterion (every test):** no failed operation may cause loss of a healthy file, a partial
 file in the final archive, a duplicate execution, or a false success status.
 
-v1.0.0 contains only features that are implemented **and** covered below. What is not covered is listed under
-*Known limitations* in [CHANGELOG.md](CHANGELOG.md).
+The v1.0.0 scenarios below were implemented and run on the reference installation. v1.1.0 adds live-stack
+scripts for single sign-on and USB protection (`app/tests/sso_e2e.js`, `app/tests/server/jellyfin_oidc_e2e.py`,
+`app/tests/protect.js`, `app/tests/healthmsg.js`, `app/tests/server/healthmsg.sh`). `node app/tests/noformat.js`
+passes offline and is safe to run anywhere; the other new scripts need the running stack. What is not covered
+is listed under *Known limitations* in [CHANGELOG.md](CHANGELOG.md).
 
 | suite | where it ran | how to run | result |
 |---|---|---|---|

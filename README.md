@@ -15,6 +15,10 @@ Instead of re-implementing Radarr, Sonarr or Jellyfin, seemore is an integrated 
 adding what they do not have: a messenger bot, a Persian web panel, external-drive copy and import, share links,
 users with fine-grained permissions, runtime configuration and a durable job engine that survives power loss.
 
+**New in 1.1.0:** write-protected USB mode with health checks, a responsive panel, and single sign-on (the panel
+is the hub for Radarr, Sonarr, Prowlarr, Bazarr, qBittorrent and Jellyfin via OIDC, with a per-user Services
+launcher; every service keeps its own username and password). See the [changelog](CHANGELOG.md).
+
 [فارسی ↓](#فارسی)
 
 ## Features
@@ -23,13 +27,16 @@ users with fine-grained permissions, runtime configuration and a durable job eng
 - **Telegram bot** (default; **Bale** optional): search with posters, quality and season choice, requests, library,
   live downloads, Jalali calendar, server status, notifications. Polling or webhook mode.
 - **React panel** — Persian, RTL, dark/light, mobile — with every bot feature plus users, settings and health.
-- **External drives:** auto-mount with fsck/repair, browse, metadata of any file, move/rename/delete, copy chosen
-  movies/episodes/seasons with subtitles and live progress (%, speed, ETA), safe eject.
+- **External drives:** auto-mount, read-only by default, browse, metadata of any file, move/rename/delete on a
+  writable drive, copy chosen movies/episodes/seasons with subtitles and live progress (%, speed, ETA), safe eject.
+- **Single sign-on:** the panel opens Radarr, Sonarr, Prowlarr, Bazarr, qBittorrent and Jellyfin for the people you
+  allow; each app keeps its own login as a fallback.
 - **Imports from drives:** movies and series are recognised and imported through Radarr/Sonarr, so they match the
   archive's naming and folders; other files go to a separate folder.
 - **Share links:** one or many movies, episodes or full seasons as a streamed ZIP (resumable) or RAR, with expiry,
   download limits and revoke, for the public internet and the LAN.
-- **Users & permissions:** only you and the people you grant, for a set time, with 13 separate permissions.
+- **Users & permissions:** only you and the people you grant, for a set time, with a separate permission per area
+  and per media service.
 - **Runtime configuration:** domains, ports, feature flags, bot, indexers, subtitle providers, torrent limits — changed
   live in the panel, with change classes (hot / reload / recreate / Caddy), confirmation, history and rollback.
 - **Fail-proof by design:** durable jobs (`queued → running → verifying → committing → completed`), atomic writes,
@@ -72,12 +79,12 @@ already run elsewhere and point the `*_URL` variables at it. In filtered network
 [Panel](docs/panel.md) · [Telegram bot](docs/bot-telegram.md) · [Bale bot](docs/bot-bale.md) ·
 [Job engine](docs/job-engine.md) · [USB](docs/usb.md) · [Imports](docs/imports.md) · [Share links](docs/shares.md) ·
 [subfa](docs/subfa.md) · [Permissions](docs/permissions.md) · [Settings](docs/settings.md) ·
+[SSO](docs/sso.md) ([فارسی](docs/sso.fa.md)) · [USB protection](docs/usb-protection.md) ·
 [Security](docs/security.md) · [Recovery](docs/recovery.md) · [Backup](docs/backup-restore.md) ·
 [Upgrading](docs/upgrading.md) · [Troubleshooting](docs/troubleshooting.md) · [Tests](TESTS.md)
 
 ## Status
-v1.0.0 contains only features that were implemented **and** tested. Known limitations (e.g. a real USB plug-in is
-not yet tested; the Telegram adapter is tested against a mock Bot API only) are listed in
+v1.1.0 adds single sign-on, write-protected USB mode and the responsive panel. Known limitations are listed in
 [CHANGELOG.md](CHANGELOG.md#known-limitations).
 
 ## License
@@ -106,13 +113,16 @@ seemore به‌جای بازنویسی Radarr، Sonarr و Jellyfin، یک لای
 - **ربات تلگرام** (پیش‌فرض) و **ربات بله** (اختیاری): جست‌وجو با پوستر، انتخاب کیفیت و فصل، درخواست دانلود، کتابخانه،
   دانلودهای زنده، تقویم پخش شمسی، وضعیت سرور و اعلان‌ها.
 - **پنل ری‌اکت** فارسی و راست‌به‌چپ، تیره و روشن، مناسب موبایل.
-- **حافظه‌های خارجی:** شناسایی و اتصال خودکار با بررسی و تعمیر، مرور، مشخصات کامل هر فایل، جابه‌جایی، تغییر نام و
-  حذف، کپی فیلم‌ها و قسمت‌ها و فصل‌های دلخواه همراه زیرنویس با نمایش درصد، سرعت و زمان باقی‌مانده، و جداسازی امن.
+- **حافظه‌های خارجی:** شناسایی و اتصال خودکار، به‌صورت پیش‌فرض فقط‌خواندنی، مرور، مشخصات کامل هر فایل، و روی
+  حافظه‌ی قابل نوشتن جابه‌جایی، تغییر نام و حذف؛ کپی فیلم‌ها و قسمت‌ها و فصل‌ها همراه زیرنویس با نمایش درصد، سرعت و
+  زمان باقی‌مانده، و جداسازی امن.
+- **ورود یکپارچه:** پنل Radarr، Sonarr، Prowlarr، Bazarr، qBittorrent و Jellyfin را برای کسانی که اجازه دارند باز
+  می‌کند و ورود خود هر سرویس سر جایش می‌ماند.
 - **انتقال از حافظه به سرور:** فیلم‌ها و سریال‌ها تشخیص داده می‌شوند و از طریق خود Radarr و Sonarr با همان نظم آرشیو
   وارد کتابخانه می‌شوند؛ بقیه‌ی فایل‌ها جداگانه ذخیره می‌شوند.
 - **لینک دانلود:** یک یا چند فیلم، قسمت یا فصل کامل به صورت ZIP (با امکان ادامه‌ی دانلود) یا RAR، با زمان انقضا یا
   بدون آن، سقف دفعات دانلود و لغو، برای اینترنت و شبکه‌ی داخلی.
-- **کاربران و دسترسی‌ها:** فقط شما و افرادی که تعیین می‌کنید، برای مدت مشخص و با ۱۳ مجوز جداگانه.
+- **کاربران و دسترسی‌ها:** فقط شما و افرادی که تعیین می‌کنید، برای مدت مشخص، با مجوز جدا برای هر بخش و هر سرویس.
 - **پیکربندی زنده:** دامنه‌ها، پورت‌ها، قابلیت‌ها، ربات، ایندکسرها، منابع زیرنویس و تورنت، بدون ری‌استارت یا با
   تأیید، همراه تاریخچه و بازگشت.
 - **مقاوم در برابر قطعی برق:** کارهای ماندگار، نوشتن اتمیک، بررسی سلامت فایل‌ها، جلوگیری از اجرای تکراری و ادامه‌ی
@@ -132,8 +142,8 @@ sh install.sh   && $EDITOR .env && sudo make host && docker compose build seemor
 راهنمای کامل نصب در [docs/installation.md](docs/installation.md) و نکته‌های شبکه‌های فیلترشده در
 [docs/iran.md](docs/iran.md) است. مستندات به انگلیسی است و رابط ربات و پنل فارسی است.
 
-**محدودیت‌های شناخته‌شده‌ی نسخه‌ی ۱٫۰٫۰:** وصل کردن فلش واقعی هنوز تست نشده (تست‌ها با درایو مجازی انجام شده‌اند) و
-ربات تلگرام فقط با یک شبیه‌ساز API تلگرام تست شده است. فهرست کامل در [CHANGELOG.md](CHANGELOG.md).
+**نسخه‌ی ۱٫۱٫۰** ورود یکپارچه، حالت محافظت‌شده‌ی USB و پنل مناسب موبایل را اضافه می‌کند. محدودیت‌های شناخته‌شده در
+[CHANGELOG.md](CHANGELOG.md) است.
 
 ### مجوز
 

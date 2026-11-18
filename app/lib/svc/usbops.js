@@ -22,7 +22,7 @@ function busyCheck(x, rel) {
 // sel: see selection.js ; folder: destination folder on the drive ('' = root)
 async function copyPlan(driveId, sel, folder = '') {
   const x = driveById(driveId);
-  if (x.ro) throw err('این حافظه فقط‌خواندنی است');
+  S.assertWritable(x);
   const { title, files } = await SEL.resolve(sel);
   if (!files.length) throw err('چیزی انتخاب نشده');
   const p = await S.plan(x, files, String(folder || '').replace(/^\/+|\/+$/g, ''));
@@ -47,8 +47,8 @@ async function transfer(uid, { from, rel, to, destRel = '', op = 'copy', mode = 
   const src = driveById(from); const dst = driveById(to);
   rel = String(rel || ''); destRel = String(destRel || '');
   if (!rel) throw err('مبدأ نامعتبر است');
-  if (dst.ro) throw err('این حافظه فقط‌خواندنی است');
-  if (op === 'move' && src.ro) throw err('حافظه‌ی مبدأ فقط‌خواندنی است');
+  S.assertWritable(dst);
+  if (op === 'move') S.assertWritable(src); // a move deletes from the source
   busyCheck(src, rel); busyCheck(dst, destRel);
   const same = src.id === dst.id;
   const srcAbs = S.safeJoin(src.mount, rel), dirAbs = S.safeJoin(dst.mount, destRel);
@@ -80,7 +80,9 @@ async function transfer(uid, { from, rel, to, destRel = '', op = 'copy', mode = 
     const t = await fs.promises.lstat(path.join(dirAbs, name));
     if (t.isDirectory() !== st.isDirectory()) await fs.promises.rm(path.join(dirAbs, name), { recursive: true, force: true });
   }
-  await S.ensureMarker(src).catch(() => {}); await S.ensureMarker(dst).catch(() => {});
+  // identity marker only on the (writable) destination, and on the source only for a move
+  if (op === 'move') await S.ensureMarker(src).catch(() => {});
+  await S.ensureMarker(dst).catch(() => {});
   src.marker = S.readMarker(src.mount); dst.marker = S.readMarker(dst.mount);
   const job = J.create({ kind: op === 'move' ? 'usb_move' : 'usb_copy', uid, title: `${st.isDirectory() ? '📁' : '📄'} ${path.basename(srcAbs)}`, src: S.endpoint(src), dst: S.endpoint(dst), files, data: { srcRoot: op === 'move' ? rel : null } });
   P.audit(uid, 'usb_manage', op, `${src.name}/${rel} -> ${dst.name}/${destRel || '/'}`);

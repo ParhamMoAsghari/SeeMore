@@ -4,7 +4,7 @@
 #   sudo host/install.sh [--usb] [--ctl] [--all] [--dir <seemore dir>] [--uid N] [--gid N]
 #                        [--usb-base /media/usb] [--caddy-container caddy] [--dry-run]
 #
-#   --usb   USB auto-mount: udev rule + usb-mount@.service (fsck/repair, mount as uid/gid) + safe-eject path unit
+#   --usb   USB auto-mount: udev rule + usb-mount@.service (protected by default) + usbpol + request path unit
 #   --ctl   seemore-ctl: allow-listed "recreate seemore container" and "reload Caddy" for runtime settings
 #   --all   both (default when no component is given)
 # Values default to the ones in <seemore dir>/.env (SEEMORE_UID, SEEMORE_GID, SEEMORE_USB_ROOT, CADDY_CONTAINER).
@@ -47,6 +47,7 @@ if [ $USB = 1 ]; then
   for b in lsblk blkid mount umount flock python3 logger; do command -v $b >/dev/null 2>&1 || echo "warning: $b not found (needed by usb-automount)"; done
   command -v fsck.vfat >/dev/null 2>&1 || echo "hint: install dosfstools exfatprogs ntfs-3g e2fsprogs for fsck/repair before mounting"
   put 0755 "$HERE/usb-automount/usb-automount" /usr/local/sbin/usb-automount
+  put 0755 "$HERE/usb-automount/usbpol" /usr/local/sbin/usbpol
   if [ $DRY = 1 ]; then echo "+ write /etc/seemore/usb.conf"; else
     printf '# written by seemore host/install.sh\nUSB_BASE=%s\nSEEMORE_UID=%s\nSEEMORE_GID=%s\n' "$USB_BASE" "$UID_" "$GID_" > /etc/seemore/usb.conf; chmod 0644 /etc/seemore/usb.conf; fi
   put 0644 "$HERE/usb-automount/usb-automount.tmpfiles" /etc/tmpfiles.d/usb-automount.conf "$SUBST"

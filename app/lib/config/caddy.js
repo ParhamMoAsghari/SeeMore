@@ -7,8 +7,10 @@ const fs = require('fs');
 const path = require('path');
 const SET = require('../settings');
 const ctl = require('./ctl');
+const SSO = require('../sso');
 
 const FILE = process.env.CADDY_SNIPPET || '/ext/caddy/seemore.caddy';
+const FILE2 = path.join(path.dirname(FILE), 'seemore-sso.caddy');   // reverse proxies of the media services (sso.* settings)
 const UP = process.env.SELF_HOST || 'seemore';
 
 function render(over = {}) {
@@ -23,17 +25,21 @@ function render(over = {}) {
   return out.join('\n');
 }
 const current = () => { try { return fs.readFileSync(FILE, 'utf8'); } catch { return null; } };
-function write(text) { const tmp = FILE + '.tmp'; fs.writeFileSync(tmp, text); const fd = fs.openSync(tmp, 'r'); fs.fsyncSync(fd); fs.closeSync(fd); fs.renameSync(tmp, FILE); }
+function write(text, file = FILE) { const tmp = file + '.tmp'; fs.writeFileSync(tmp, text); const fd = fs.openSync(tmp, 'r'); fs.fsyncSync(fd); fs.closeSync(fd); fs.renameSync(tmp, file); }
+const current2 = () => { try { return fs.readFileSync(FILE2, 'utf8'); } catch { return null; } };
+const put2 = (text) => { if (text == null || text === '') { try { fs.unlinkSync(FILE2); } catch {} } else write(text, FILE2); };
 async function apply() {
   if (!fs.existsSync(path.dirname(FILE))) throw Object.assign(new Error('Caddy snippet directory is not mounted'), { status: 503 });
   const prev = current(); const next = render();
-  if (prev === next) return { changed: false };
-  write(next);
+  const prev2 = current2(); const next2 = SSO.renderServices();
+  if (prev === next && (prev2 || '') === next2) return { changed: false };
+  write(next); put2(next2);
   try { const r = await ctl.hostRequest('caddy-reload', 'caddy', {}, 90000); return { changed: true, result: r.result }; }
   catch (e) {
     if (prev != null) write(prev); else fs.unlinkSync(FILE);
+    put2(prev2);
     try { await ctl.hostRequest('caddy-reload', 'caddy', {}, 90000); } catch {}
     throw Object.assign(new Error('Caddy rejected the new configuration, previous one restored: ' + e.message), { status: 422 });
   }
 }
-module.exports = { render, current, apply, FILE };
+module.exports = { render, current, apply, FILE, FILE2 };

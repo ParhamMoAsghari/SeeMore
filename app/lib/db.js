@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS login_fail (k TEXT PRIMARY KEY, n INTEGER NOT NULL, f
 CREATE TABLE IF NOT EXISTS settings_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, by INTEGER, key TEXT NOT NULL, scope TEXT NOT NULL,
   cls TEXT NOT NULL, old TEXT, new TEXT, status TEXT NOT NULL, detail TEXT, rollback_of INTEGER);
+-- single sign-on: parent-domain cookie tokens bound to a panel session (see sso.js)
+CREATE TABLE IF NOT EXISTS sso_tokens (h TEXT PRIMARY KEY, sess TEXT NOT NULL, created INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS sso_tokens_sess ON sso_tokens(sess);
 CREATE TABLE IF NOT EXISTS ctl_requests (
   id TEXT PRIMARY KEY, t INTEGER NOT NULL, action TEXT NOT NULL, target TEXT, status TEXT NOT NULL, result TEXT, done INTEGER);
 `;

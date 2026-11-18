@@ -4,7 +4,7 @@ The bot answers **only** the owner (`ALLOWED_CHAT`) and users the owner granted 
 short `acl.refusal_text` on `/start` (empty = silent) and no information at all. The same model protects the panel
 and the API: permissions are enforced in the core for every client.
 
-## Permissions (13)
+## Permissions
 | key | allows |
 |---|---|
 | `request` | search and request downloads |
@@ -20,9 +20,10 @@ and the API: permissions are enforced in the core for every client.
 | `usb_manage` | move / rename / delete on drives |
 | `files` | browse server files + metadata (read-only) |
 | `links` | create download links |
+| `svc.jellyfin`, `svc.seerr`, `svc.radarr`, `svc.sonarr`, `svc.prowlarr`, `svc.bazarr`, `svc.qbit` | panel single sign-on into that service (see [sso.md](sso.md)) |
 
-`admin` (users, settings, containers, audit) is the owner only. Presets: **viewer** (library, calendar, notify),
-**family** (request, library, downloads, calendar, notify, usb_view, usb_copy, links), **full** (all 13).
+`admin` (users, settings, containers, audit) is the owner only. Presets: **viewer** (library, calendar, notify, `svc.jellyfin`),
+**family** (request, library, downloads, calendar, notify, usb_view, usb_copy, links, `svc.jellyfin`, `svc.seerr`), **full** (every permission).
 Feature flags (`features.*`) switch an area off for everyone, owner included.
 
 ## Grants

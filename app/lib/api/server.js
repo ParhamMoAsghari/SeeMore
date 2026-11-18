@@ -12,6 +12,7 @@ const U = require('../util');
 const auth = require('./auth');
 const sse = require('./sse');
 const routes = require('./routes');
+const SSO = require('../sso');
 
 const PUBLIC = process.env.PUBLIC_DIR || path.join(__dirname, '..', '..', 'public');
 const COOKIE = 'sm_session';
@@ -69,6 +70,7 @@ async function handle(req, res) {
   const u = new URL(req.url, 'http://x');
   const pathname = u.pathname;
   if (pathname === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('ok'); }
+  if (SSO.claims(pathname)) return SSO.handle(req, res, pathname, u);   // forward-auth target for Caddy + Jellyfin one-click page
   if (!pathname.startsWith('/api/')) {
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
     return serveStatic(req, res, pathname);
@@ -84,6 +86,7 @@ async function handle(req, res) {
       const r = await auth.login(b.username, b.password, { ip, ua: req.headers['user-agent'] });
       if (!r.ok) return json(res, r.locked ? 429 : 401, { error: r.locked ? 'locked' : 'invalid credentials', retryAfter: r.locked || undefined });
       setCookie(res, req, r.sid, SET.get('panel.session_hours') * 3600);
+      const sso = SSO.issue(req, r.sid); if (sso) res.setHeader('Set-Cookie', [res.getHeader('Set-Cookie'), sso]);   // parent-domain SSO cookie
       return json(res, 200, { ok: true, csrf: r.csrf, ...(await routes.me(r.uid, r.username)) });
     }
     if (pathname === '/api/v1/openapi.yaml') { const f = path.join(__dirname, 'openapi.yaml'); res.writeHead(200, { 'Content-Type': MIME['.yaml'] }); return fs.createReadStream(f).pipe(res); }
@@ -97,7 +100,7 @@ async function handle(req, res) {
       if (!sameOrigin(req) || !tok || tok !== sess.csrf) return json(res, 403, { error: 'csrf' });
       ctx.body = await readBody(req);
     }
-    if (pathname === '/api/v1/auth/logout' && req.method === 'POST') { auth.logout(sid); setCookie(res, req, '', 0); return json(res, 200, { ok: true }); }
+    if (pathname === '/api/v1/auth/logout' && req.method === 'POST') { auth.logout(sid); SSO.revokeFor(sid); setCookie(res, req, '', 0); const sc = SSO.clear(req); if (sc) res.setHeader('Set-Cookie', [res.getHeader('Set-Cookie'), sc]); return json(res, 200, { ok: true }); }
     if (pathname === '/api/v1/auth/session' || pathname === '/api/v1/me') return json(res, 200, { csrf: sess.csrf, ...(await routes.me(sess.uid, sess.username)) });
     if (pathname === '/api/v1/events') return sse.stream(req, res, sess.uid);
     const hit = routes.match(req.method, pathname);

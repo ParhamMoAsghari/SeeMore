@@ -1,7 +1,21 @@
 #!/bin/bash
-# usb-automount: mount/unmount removable USB drives for seemore (installed by host/install.sh).
+# usb-automount: mount/unmount removable USB drives for seemore (media bot / panel).
 # usage: usb-automount add <kname> | remove <kname> | requests | cleanup
-# State for the bot: /run/usb-automount/drives/<id>.json ; eject requests: /run/usb-automount/requests/<id>.eject
+# State for the bot: /run/usb-automount/drives/<id>.json
+# Requests from the bot (container user, dir /run/usb-automount/requests):
+#   <id>.eject  safe eject          <id>.mode  {"mode":"protected"|"writable"}
+#   <id>.check  check-only fsck     <id>.repair  repairing fsck (writable drives only)
+#   policy.default {"default_mode":..., "auto_repair": bool}
+# Results: /run/usb-automount/results/<id>.json (policy: results/policy.json)
+#
+# WRITE PROTECTION (default): a drive whose policy is 'protected' (every unknown drive unless the
+# global default was changed to 'writable') is mounted READ-ONLY with the block device itself set
+# read-only (blockdev --setro), fsck runs in check-only mode (-n) and nothing is ever written to it.
+# Policy store: /etc/seemore/usb-policy.json via /usr/local/sbin/usbpol (fail-safe: protected).
+#
+# NEVER FORMAT: this script (and seemore as a whole) never formats, repartitions or wipes a drive.
+# There is no mkfs / wipefs / parted / fdisk / sfdisk / sgdisk / dd call anywhere; tests/noformat.js
+# asserts it.
 set -u
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 BASE=/media/usb
@@ -10,12 +24,27 @@ UID_=1000; GID_=1000
 # host-specific overrides (written by host/install.sh): USB_BASE, SEEMORE_UID, SEEMORE_GID
 [ -r /etc/seemore/usb.conf ] && . /etc/seemore/usb.conf
 BASE=${USB_BASE:-$BASE}; UID_=${SEEMORE_UID:-$UID_}; GID_=${SEEMORE_GID:-$GID_}
-DRV=$RUN/drives; REQ=$RUN/requests; RES=$RUN/results
-mkdir -p "$BASE" "$DRV" "$REQ" "$RES"; chown $UID_:$GID_ "$REQ"; chmod 0770 "$REQ"
+DRV=$RUN/drives; REQ=$RUN/requests; RES=$RUN/results; GONE=$RUN/gone
+POL=/usr/local/sbin/usbpol
+mkdir -p "$BASE" "$DRV" "$REQ" "$RES" "$GONE"; chown $UID_:$GID_ "$REQ"; chmod 0770 "$REQ"
 log(){ logger -t usb-automount -- "$*"; }
-exec 9>"$RUN/.lock"; flock -w 60 9
+# runtime guard: even by mistake, no formatting / partitioning / wiping tool can run from this script
+for _c in mkfs mkfs.vfat mkfs.fat mkfs.msdos mkfs.exfat mkfs.ntfs mkfs.ext2 mkfs.ext3 mkfs.ext4 mkfs.xfs mkfs.btrfs mke2fs mkntfs mkdosfs mkexfatfs wipefs parted fdisk sfdisk sgdisk gdisk cfdisk blkdiscard dd shred; do
+  eval "$_c(){ logger -t usb-automount -- \"BLOCKED: $_c is never allowed (no format / repartition / wipe)\"; return 99; }"
+done; unset _c
+exec 9>"$RUN/.lock"; flock -w 120 9
 
 jstr(){ python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$1"; }
+jget(){ python3 -c 'import json,sys;v=json.load(open(sys.argv[1])).get(sys.argv[2],"");print("" if v is None else (str(v).lower() if isinstance(v,bool) else v))' "$1" "$2" 2>/dev/null; }
+jset(){ # file key=json-value ...  (atomic rewrite of a drive state file)
+  python3 - "$@" <<'PY'
+import json,sys,os
+p=sys.argv[1]; j=json.load(open(p))
+for kv in sys.argv[2:]:
+    k,v=kv.split('=',1); j[k]=json.loads(v)
+open(p+'.tmp','w').write(json.dumps(j)); os.chmod(p+'.tmp',0o644); os.replace(p+'.tmp',p)
+PY
+}
 
 allowed(){ # removable/usb only, never system disks
   local dev=$1 kname=$2 parent tran rm
@@ -29,95 +58,164 @@ allowed(){ # removable/usb only, never system disks
   return 0
 }
 
-run_fsck(){ # dev fstype -> prints result word; exit code ignored
+# check-only fsck: never modifies the device (and the device is --setro first when protected)
+FSCK_OUT=""; FSCK_FILE=$RUN/.fsck.out
+fsck_log(){ FSCK_OUT=$(tail -c 1500 "$FSCK_FILE" 2>/dev/null); }   # output of the last check/repair (set in the caller's shell)
+check_fsck(){ # dev fstype -> result word: clean | dirty | errors(N) | timeout | skipped
   local dev=$1 t=$2 rc out
   case "$t" in
-    vfat)  out=$(timeout 600 fsck.vfat -a -w "$dev" 2>&1); rc=$? ;;
-    exfat) out=$(timeout 600 fsck.exfat -p "$dev" 2>&1); rc=$? ;;
-    ntfs)  out=$(timeout 300 ntfsfix -d "$dev" 2>&1); rc=$? ;;
-    ext2|ext3|ext4) out=$(timeout 900 e2fsck -p "$dev" 2>&1); rc=$? ;;
-    *) echo "skipped"; return ;;
+    vfat)  out=$(timeout 600 fsck.vfat -n "$dev" 2>&1); rc=$? ;;
+    exfat) out=$(timeout 600 fsck.exfat -n "$dev" 2>&1); rc=$? ;;
+    ntfs)  out=$(timeout 300 ntfsfix -n "$dev" 2>&1); rc=$? ;;
+    ext2|ext3|ext4) out=$(timeout 900 e2fsck -n "$dev" 2>&1); rc=$? ;;
+    *) : > "$FSCK_FILE"; echo "skipped"; return ;;
   esac
+  printf '%s\n' "$out" > "$FSCK_FILE"
+  [ $rc = 124 ] && { echo "timeout"; return; }
+  if [ $rc = 0 ] && ! printf '%s' "$out" | grep -qiE 'dirty|not properly unmounted|needs? (repair|recovery)|unclean'; then echo clean; return; fi
+  if printf '%s' "$out" | grep -qiE 'dirty bit|not properly unmounted|unclean|journal recovery|needs_recovery'; then
+    # only the "unclean unmount" flag (typical after a pulled drive / power cut) unless real errors are listed.
+    # FAT32: the kernel sets the dirty flag (boot sector offset 65) in the primary boot sector only, so a
+    # boot-sector/backup difference at offset 65 alone is that same flag, not damage.
+    local rest; rest=$(printf '%s\n' "$out" | grep -viE 'differences between boot sector and its backup|mostly harmless|^ *65:[0-9a-f]{2}/[0-9a-f]{2} *$|not automatically fixing|dirty bit|not properly unmounted|removing dirty bit|leaving filesystem unchanged|^fsck|files, [0-9]+/[0-9]+ clusters')
+    if ! printf '%s' "$rest" | grep -qiE 'differ|invalid|bad|lost|orphan|cross-linked|wrong|unable|chain|error|free cluster|corrupt'; then echo dirty; return; fi
+  fi
+  [ $rc = 0 ] && echo clean || echo "errors($rc)"
+}
+# repairing fsck: ONLY for writable drives, ONLY when unmounted, ONLY on explicit request or auto_repair
+repair_fsck(){ # dev fstype -> result word
+  local dev=$1 t=$2 rc out
+  case "$t" in
+    vfat)  out=$(timeout 900 fsck.vfat -a -w "$dev" 2>&1); rc=$? ;;
+    exfat) out=$(timeout 900 fsck.exfat -p "$dev" 2>&1); rc=$? ;;
+    ntfs)  out=$(timeout 300 ntfsfix -d "$dev" 2>&1); rc=$? ;;
+    ext2|ext3|ext4) out=$(timeout 1800 e2fsck -p "$dev" 2>&1); rc=$? ;;
+    *) : > "$FSCK_FILE"; echo "skipped"; return ;;
+  esac
+  printf '%s\n' "$out" > "$FSCK_FILE"
   [ $rc = 124 ] && { echo "timeout"; return; }
   case "$t" in
     ext*) [ $rc = 0 ] && echo clean || { [ $rc -le 2 ] && echo repaired || echo "errors($rc)"; } ;;
-    ntfs) [ $rc = 0 ] && echo "checked" || echo "errors($rc)" ;;
-    *) if [ $rc = 0 ]; then echo "$out" | grep -qiE 'fix|repair|correct|dirty|free cluster|performing changes' && echo repaired || echo clean
+    ntfs) [ $rc = 0 ] && echo "repaired" || echo "errors($rc)" ;;
+    *) if [ $rc = 0 ]; then printf '%s' "$out" | grep -qiE 'fix|repair|correct|dirty|free cluster|performing changes' && echo repaired || echo clean
        elif [ $rc = 1 ]; then echo repaired; else echo "errors($rc)"; fi ;;
   esac
 }
+
+set_ro(){ blockdev --setro "$1" 2>/dev/null; }   # kernel-level: every write to the device fails
+set_rw(){ blockdev --setrw "$1" 2>/dev/null; }
+
+MNT_DRV=""
+do_mount(){ # dev mp fstype ro(0|1) -> 0 ok ; sets MNT_DRV
+  local dev=$1 mp=$2 t=$3 ro=$4 common="nosuid,nodev,noexec,noatime" ok=1
+  MNT_DRV=$t
+  if [ "$ro" = 1 ]; then
+    case "$t" in
+      vfat)  mount -t vfat -o ro,$common,uid=$UID_,gid=$GID_,umask=022,iocharset=utf8,shortname=mixed "$dev" "$mp" && ok=0 ;;
+      exfat) mount -t exfat -o ro,$common,uid=$UID_,gid=$GID_,umask=022 "$dev" "$mp" && ok=0 ;;
+      ntfs)  if mount -t ntfs3 -o ro,$common,uid=$UID_,gid=$GID_,umask=022 "$dev" "$mp"; then ok=0; MNT_DRV=ntfs3
+             elif mount -t ntfs-3g -o ro,$common,uid=$UID_,gid=$GID_,umask=022 "$dev" "$mp"; then ok=0; MNT_DRV=ntfs-3g; fi ;;
+      ext2|ext3|ext4) mount -t "$t" -o ro,noload,$common "$dev" "$mp" && ok=0 ;;   # noload: no journal replay (would write)
+      xfs)   mount -t xfs -o ro,norecovery,$common "$dev" "$mp" && ok=0 ;;
+      btrfs) mount -t btrfs -o ro,rescue=nologreplay,$common "$dev" "$mp" && ok=0 || { mount -t btrfs -o ro,nologreplay,$common "$dev" "$mp" && ok=0; } ;;
+    esac
+    return $ok
+  fi
+  case "$t" in
+    vfat)  mount -t vfat -o $common,flush,uid=$UID_,gid=$GID_,umask=022,iocharset=utf8,shortname=mixed "$dev" "$mp" && ok=0 ;;
+    exfat) mount -t exfat -o $common,uid=$UID_,gid=$GID_,umask=022 "$dev" "$mp" && ok=0 ;;
+    ntfs)
+      if mount -t ntfs3 -o $common,uid=$UID_,gid=$GID_,umask=022,windows_names "$dev" "$mp"; then ok=0; MNT_DRV=ntfs3
+      elif mount -t ntfs-3g -o $common,uid=$UID_,gid=$GID_,umask=022,big_writes "$dev" "$mp"; then ok=0; MNT_DRV=ntfs-3g; fi ;;
+    *) mount -o $common "$dev" "$mp" && ok=0
+       if [ $ok = 0 ] && [ "$(stat -c %u "$mp")" = 0 ]; then chown $UID_:$GID_ "$mp"; fi ;;
+  esac
+  return $ok
+}
+is_ro_mount(){ findmnt -no OPTIONS "$1" 2>/dev/null | grep -qE '(^|,)ro(,|$)'; }
 
 do_add(){
   local kname=$1 dev=/dev/$1
   [ -b "$dev" ] || { log "no device $dev"; return 0; }
   allowed "$dev" "$kname" || { log "skip $kname (not removable usb)"; return 0; }
-  # already mounted by us?
   for f in "$DRV"/*.json; do [ -e "$f" ] || continue; grep -q "\"kname\": \"$kname\"" "$f" && { log "$kname already mounted"; return 0; }; done
   local fstype label uuid
   fstype=$(blkid -p -o value -s TYPE "$dev" 2>/dev/null); label=$(blkid -p -o value -s LABEL "$dev" 2>/dev/null); uuid=$(blkid -p -o value -s UUID "$dev" 2>/dev/null)
   [ -n "$fstype" ] || { log "$kname has no filesystem"; return 0; }
   case "$fstype" in vfat|exfat|ntfs|ext4|ext3|ext2|btrfs|xfs) ;; *) log "$kname unsupported fs $fstype"; return 0;; esac
-  # check + auto-repair before mounting (an unclean unplug or power cut leaves FAT/exFAT/NTFS dirty)
-  local fsck_res; fsck_res=$(run_fsck "$dev" "$fstype")
-  log "fsck $kname: $fsck_res"
+  # identity (before anything touches the drive)
+  local parent model vendor size serial partuuid
+  parent=$(lsblk -no PKNAME "$dev" | head -1); [ -z "$parent" ] && parent=$kname
+  model=$(lsblk -dno MODEL "/dev/$parent" 2>/dev/null | sed 's/ *$//'); vendor=$(lsblk -dno VENDOR "/dev/$parent" 2>/dev/null | sed 's/ *$//')
+  size=$(lsblk -bdno SIZE "$dev")
+  serial=$(udevadm info -q property -n "/dev/$parent" 2>/dev/null | sed -n 's/^ID_SERIAL_SHORT=//p' | head -1)
+  [ -n "$serial" ] || serial=$(udevadm info -q property -n "/dev/$parent" 2>/dev/null | sed -n 's/^ID_SERIAL=//p' | head -1)
+  partuuid=$(blkid -p -o value -s PART_ENTRY_UUID "$dev" 2>/dev/null)
+  # policy (fail-safe: protected)
+  local pol mode arep pkey
+  pol=$("$POL" lookup "$serial" "$partuuid" "$uuid" "${size:-0}" 2>/dev/null); read -r mode arep pkey <<<"$pol"
+  [ "$mode" = writable ] || mode=protected
+  [ "$arep" = 1 ] || arep=0
+  local fsck_res fsck_kind=check
+  if [ $mode = protected ]; then
+    set_ro "$dev"; [ "$parent" != "$kname" ] && set_ro "/dev/$parent"
+    fsck_res=$(check_fsck "$dev" "$fstype")
+  elif [ $arep = 1 ]; then
+    fsck_res=$(repair_fsck "$dev" "$fstype"); fsck_kind=repair
+  else
+    fsck_res=$(check_fsck "$dev" "$fstype")
+  fi
+  fsck_log; log "fsck($fsck_kind) $kname: $fsck_res mode=$mode"
   local name; name=$(printf '%s' "${label:-USB-${uuid:0:8}}" | tr -d '\000-\037/\\' | tr ' ' '_' | cut -c1-40)
   [ -n "$name" ] || name=USB-$kname
   local mp=$BASE/$name n=2
   while mountpoint -q "$mp" || { [ -e "$mp" ] && [ -n "$(ls -A "$mp" 2>/dev/null)" ]; }; do mp=$BASE/${name}_$n; n=$((n+1)); done
   mkdir -p "$mp"
-  local common="nosuid,nodev,noexec,noatime" ok=0 drv=$fstype ro=0
-  case "$fstype" in
-    vfat)  mount -t vfat -o $common,flush,uid=$UID_,gid=$GID_,umask=022,iocharset=utf8,shortname=mixed "$dev" "$mp" && ok=1 ;;
-    exfat) mount -t exfat -o $common,uid=$UID_,gid=$GID_,umask=022 "$dev" "$mp" && ok=1 ;;
-    ntfs)
-      if mount -t ntfs3 -o $common,uid=$UID_,gid=$GID_,umask=022,windows_names "$dev" "$mp"; then ok=1; drv=ntfs3
-      elif mount -t ntfs-3g -o $common,uid=$UID_,gid=$GID_,umask=022,big_writes "$dev" "$mp"; then ok=1; drv=ntfs-3g
-      elif mount -t ntfs3 -o $common,ro,uid=$UID_,gid=$GID_,umask=022 "$dev" "$mp"; then ok=1; drv=ntfs3; ro=1; fi ;;
-    *) mount -o $common "$dev" "$mp" && ok=1
-       if [ $ok = 1 ] && [ "$(stat -c %u "$mp")" = 0 ]; then chown $UID_:$GID_ "$mp"; fi ;;
-  esac
-  if [ $ok != 1 ]; then
-    # last resort: read-only
-    mount -o ro,$common "$dev" "$mp" && { ok=1; ro=1; }
+  local ro=0 want_ro=0 drv
+  [ $mode = protected ] && want_ro=1
+  if ! do_mount "$dev" "$mp" "$fstype" $want_ro; then
+    # writable drive that refuses rw: read-only as last resort
+    if [ $want_ro = 0 ] && do_mount "$dev" "$mp" "$fstype" 1; then :; else rmdir "$mp" 2>/dev/null; log "mount failed for $kname ($fstype)"; return 1; fi
   fi
-  if [ $ok != 1 ]; then rmdir "$mp" 2>/dev/null; log "mount failed for $kname ($fstype)"; return 1; fi
-  findmnt -no OPTIONS "$mp" | grep -qE '(^|,)ro(,|$)' && ro=1
-  local parent model vendor size id
-  parent=$(lsblk -no PKNAME "$dev" | head -1); [ -z "$parent" ] && parent=$kname
-  model=$(lsblk -dno MODEL "/dev/$parent" 2>/dev/null | sed 's/ *$//'); vendor=$(lsblk -dno VENDOR "/dev/$parent" 2>/dev/null | sed 's/ *$//')
-  size=$(lsblk -bdno SIZE "$dev")
-  local serial partuuid
-  serial=$(udevadm info -q property -n "/dev/$parent" 2>/dev/null | sed -n 's/^ID_SERIAL_SHORT=//p' | head -1)
-  [ -n "$serial" ] || serial=$(udevadm info -q property -n "/dev/$parent" 2>/dev/null | sed -n 's/^ID_SERIAL=//p' | head -1)
-  partuuid=$(blkid -p -o value -s PART_ENTRY_UUID "$dev" 2>/dev/null)
-  id=$(printf '%s' "${uuid:-$kname}" | md5sum | cut -c1-8)
+  drv=$MNT_DRV
+  is_ro_mount "$mp" && ro=1
+  if [ $mode = protected ] && [ $ro != 1 ]; then umount "$mp"; rmdir "$mp" 2>/dev/null; log "REFUSED: protected $kname did not mount read-only"; return 1; fi
+  local id; id=$(printf '%s' "${uuid:-$kname}" | md5sum | cut -c1-8)
   cat > "$DRV/$id.json.tmp" <<J
-{"id": "$id", "name": $(jstr "$(basename "$mp")"), "mount": $(jstr "$mp"), "kname": "$kname", "parent": "$parent", "fstype": "$fstype", "driver": "$drv", "label": $(jstr "$label"), "uuid": "$uuid", "size": ${size:-0}, "model": $(jstr "$model"), "vendor": $(jstr "$vendor"), "serial": $(jstr "$serial"), "partuuid": $(jstr "$partuuid"), "fsck": $(jstr "$fsck_res"), "ro": $([ $ro = 1 ] && echo true || echo false), "mountedAt": $(date +%s)}
+{"id": "$id", "name": $(jstr "$(basename "$mp")"), "mount": $(jstr "$mp"), "kname": "$kname", "parent": "$parent", "fstype": "$fstype", "driver": "$drv", "label": $(jstr "$label"), "uuid": "$uuid", "size": ${size:-0}, "model": $(jstr "$model"), "vendor": $(jstr "$vendor"), "serial": $(jstr "$serial"), "partuuid": $(jstr "$partuuid"), "fsck": $(jstr "$fsck_res"), "fsckKind": "$fsck_kind", "fsckLog": $(jstr "$FSCK_OUT"), "fsckAt": $(date +%s), "mode": "$mode", "policyKey": $(jstr "${pkey#-}"), "ro": $([ $ro = 1 ] && echo true || echo false), "mountedAt": $(date +%s)}
 J
   mv "$DRV/$id.json.tmp" "$DRV/$id.json"; chmod 644 "$DRV/$id.json"
-  log "mounted $dev ($fstype/$drv) at $mp ro=$ro id=$id"
+  log "mounted $dev ($fstype/$drv) at $mp ro=$ro mode=$mode id=$id"
 }
 
-drop_state(){ # by kname
-  local kname=$1 f
-  for f in "$DRV"/*.json; do [ -e "$f" ] || continue; if grep -q "\"kname\": \"$kname\"" "$f"; then echo "$f"; fi; done
-}
-jget(){ python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$1" "$2"; }
+jget_cached_parent(){ local k=$1; echo "${k%p[0-9]*}"; }
+drop_state(){ local kname=$1 f; for f in "$DRV"/*.json; do [ -e "$f" ] || continue; if grep -q "\"kname\": \"$kname\"" "$f"; then echo "$f"; fi; done; }
 
+gone_mark(){ # state-file safe(true|false) ro(true|false): how a drive left, written BEFORE its state file is removed
+  local f=$1 id; id=$(basename "$1" .json)
+  printf '{"id": "%s", "name": %s, "safe": %s, "ro": %s, "t": %s}\n' "$id" "$(jstr "$(jget "$f" name)")" "$2" "${3:-false}" "$(date +%s)" > "$GONE/.$id.tmp" && mv -f "$GONE/.$id.tmp" "$GONE/$id.json"
+  find "$GONE" -name '*.json' -mmin +1440 -delete 2>/dev/null
+}
 do_remove(){
   local kname=$1 f mp
   for f in $(drop_state "$kname"); do
     mp=$(jget "$f" mount)
-    if mountpoint -q "$mp"; then sync -f "$mp" 2>/dev/null; umount "$mp" 2>/dev/null || umount -l "$mp"; fi
+    # still mounted when the device vanished = pulled out without a safe eject; already unmounted = safe
+    if mountpoint -q "$mp"; then
+      if is_ro_mount "$mp"; then gone_mark "$f" false true; else gone_mark "$f" false false; fi
+      sync -f "$mp" 2>/dev/null; umount "$mp" 2>/dev/null || umount -l "$mp"
+    else gone_mark "$f" true "$(jget "$f" ro)"; fi
     rmdir "$mp" 2>/dev/null; rm -f "$f"; log "removed $kname ($mp)"
+    # loop devices are reused (real USB devices disappear on unplug): drop the kernel ro flag of a removed loop
+    case "$kname" in loop*) local pk; pk=$(jget_cached_parent "$kname"); blockdev --setrw "/dev/$kname" 2>/dev/null; [ -n "$pk" ] && blockdev --setrw "/dev/$pk" 2>/dev/null ;; esac
   done
-  # mounted by us but state missing
   findmnt -rno TARGET,SOURCE | awk -v d="/dev/$kname" '$2==d{print $1}' | grep "^$BASE/" | while read -r t; do umount -l "$t"; rmdir "$t" 2>/dev/null; done
   return 0
 }
 
-result(){ # id ok msg
-  printf '{"id": "%s", "ok": %s, "msg": %s, "t": %s}\n' "$1" "$2" "$(jstr "$3")" "$(date +%s)" > "$RES/$1.json.tmp"; mv "$RES/$1.json.tmp" "$RES/$1.json"; chmod 644 "$RES/$1.json"
+REQ_NONCE=""
+result(){ # id ok msg [extra-json-object]   (echoes the request nonce so the caller never reads a stale result)
+  printf '{"id": "%s", "ok": %s, "msg": %s, "t": %s, "nonce": "%s", "x": %s}\n' "$1" "$2" "$(jstr "$3")" "$(date +%s)" "$REQ_NONCE" "${4:-null}" > "$RES/$1.json.tmp"; mv "$RES/$1.json.tmp" "$RES/$1.json"; chmod 644 "$RES/$1.json"
 }
 
 do_eject(){
@@ -129,8 +227,8 @@ do_eject(){
     local who; who=$(fuser -vm "$mp" 2>&1 | awk 'NR>1{print $NF}' | sort -u | tr '\n' ' ')
     result "$id" false "busy: $(head -c 200 /tmp/usb-umount.err) ${who}"; log "eject $id busy"; return
   fi
+  gone_mark "$f" true "$(jget "$f" ro)"
   rmdir "$mp" 2>/dev/null; rm -f "$f"
-  # stop the per-device unit without re-running umount side effects
   systemctl stop --no-block "usb-mount@$kname.service" 2>/dev/null
   local still=0
   for g in "$DRV"/*.json; do [ -e "$g" ] && grep -q "\"parent\": \"$parent\"" "$g" && still=1; done
@@ -141,15 +239,107 @@ do_eject(){
   result "$id" true "ejected$pw"; log "ejected $id ($mp)$pw"
 }
 
+# switch a mounted drive between protected (ro) and writable (rw); the policy is stored by identity
+do_mode(){
+  local id=$1 want=$2 f=$DRV/$1.json
+  [ -e "$f" ] || { result "$id" false "drive not found"; return; }
+  case "$want" in protected|writable) ;; *) result "$id" false "bad mode"; return;; esac
+  local mp kname parent fstype dev serial partuuid uuid size label k
+  mp=$(jget "$f" mount); kname=$(jget "$f" kname); parent=$(jget "$f" parent); fstype=$(jget "$f" fstype); dev=/dev/$kname
+  serial=$(jget "$f" serial); partuuid=$(jget "$f" partuuid); uuid=$(jget "$f" uuid); size=$(jget "$f" size); label=$(jget "$f" label)
+  if [ $want = protected ]; then
+    # policy first (so even a failed remount is protected on the next plug), then flush + ro
+    k=$("$POL" set protected "$serial" "$partuuid" "$uuid" "$size" "$label") || { result "$id" false "policy: $k"; return; }
+    sync -f "$mp" 2>/dev/null; sync
+    if ! is_ro_mount "$mp"; then
+      if ! mount -o remount,ro "$mp" 2>/tmp/usb-mode.err; then
+        umount "$mp" 2>>/tmp/usb-mode.err && do_mount "$dev" "$mp" "$fstype" 1 || { jset "$f" mode='"protected"' policyKey="\"$k\""; result "$id" false "busy: $(head -c 200 /tmp/usb-mode.err)"; log "mode $id protected: remount failed"; return; }
+      fi
+    fi
+    set_ro "$dev"; [ "$parent" != "$kname" ] && set_ro "/dev/$parent"
+    jset "$f" mode='"protected"' ro=true policyKey="\"$k\""
+    result "$id" true "protected"; log "mode $id -> protected (ro) key=$k"; return
+  fi
+  # writable: remount rw first, store the policy only when that worked
+  set_rw "$dev"; [ "$parent" != "$kname" ] && set_rw "/dev/$parent"
+  if is_ro_mount "$mp"; then
+    # always a fresh rw mount: "remount,rw" on the host does not propagate to the bot container's
+    # (rslave) copy of the mount, and ext*/xfs/btrfs were mounted with noload/norecovery anyway
+    local okm=1
+    if umount "$mp" 2>/tmp/usb-mode.err; then
+      if do_mount "$dev" "$mp" "$fstype" 0 && ! is_ro_mount "$mp"; then okm=0; jset "$f" driver="\"$MNT_DRV\""
+      else mountpoint -q "$mp" && umount "$mp"; set_ro "$dev"; [ "$parent" != "$kname" ] && set_ro "/dev/$parent"; do_mount "$dev" "$mp" "$fstype" 1; fi
+    fi
+    if [ $okm != 0 ]; then
+      set_ro "$dev"; [ "$parent" != "$kname" ] && set_ro "/dev/$parent"
+      result "$id" false "rw mount failed: $(head -c 200 /tmp/usb-mode.err)"; log "mode $id writable: failed"; return
+    fi
+  fi
+  k=$("$POL" set writable "$serial" "$partuuid" "$uuid" "$size" "$label") || { mount -o remount,ro "$mp"; set_ro "$dev"; result "$id" false "policy: $k"; return; }
+  jset "$f" mode='"writable"' ro=false policyKey="\"$k\""
+  result "$id" true "writable"; log "mode $id -> writable (rw) key=$k"
+}
+
+do_check(){ # check-only fsck of a mounted drive; a writable drive is flushed and briefly remounted ro
+  local id=$1 f=$DRV/$1.json
+  [ -e "$f" ] || { result "$id" false "drive not found"; return; }
+  local mp kname fstype mode dev r back=0
+  mp=$(jget "$f" mount); kname=$(jget "$f" kname); fstype=$(jget "$f" fstype); mode=$(jget "$f" mode); dev=/dev/$kname
+  if ! is_ro_mount "$mp"; then
+    sync -f "$mp" 2>/dev/null; sync
+    mount -o remount,ro "$mp" 2>/dev/null || { result "$id" false "busy: drive is in use, cannot check now"; return; }
+    back=1
+  fi
+  r=$(check_fsck "$dev" "$fstype"); fsck_log
+  [ $back = 1 ] && [ "$mode" = writable ] && mount -o remount,rw "$mp"
+  jset "$f" fsck="$(jstr "$r")" fsckKind='"check"' fsckLog="$(jstr "$FSCK_OUT")" fsckAt="$(date +%s)"
+  result "$id" true "$r" "{\"log\": $(jstr "$FSCK_OUT")}"; log "check $id: $r"
+}
+
+do_repair(){ # repairing fsck: writable drives only (policy AND state), drive must not be in use
+  local id=$1 f=$DRV/$1.json
+  [ -e "$f" ] || { result "$id" false "drive not found"; return; }
+  local mp kname fstype dev serial partuuid uuid size pm r
+  mp=$(jget "$f" mount); kname=$(jget "$f" kname); fstype=$(jget "$f" fstype); dev=/dev/$kname
+  serial=$(jget "$f" serial); partuuid=$(jget "$f" partuuid); uuid=$(jget "$f" uuid); size=$(jget "$f" size)
+  read -r pm _ _ <<<"$("$POL" lookup "$serial" "$partuuid" "$uuid" "$size")"
+  if [ "$pm" != writable ] || [ "$(jget "$f" mode)" != writable ]; then result "$id" false "protected: repair refused"; log "repair $id refused (protected)"; return; fi
+  sync -f "$mp" 2>/dev/null; sync
+  umount "$mp" 2>/tmp/usb-repair.err || { result "$id" false "busy: $(head -c 200 /tmp/usb-repair.err)"; return; }
+  set_rw "$dev"
+  r=$(repair_fsck "$dev" "$fstype"); fsck_log
+  do_mount "$dev" "$mp" "$fstype" 0 || do_mount "$dev" "$mp" "$fstype" 1
+  local ro=false; is_ro_mount "$mp" && ro=true
+  jset "$f" fsck="$(jstr "$r")" fsckKind='"repair"' fsckLog="$(jstr "$FSCK_OUT")" fsckAt="$(date +%s)" ro=$ro mountedAt="$(date +%s)" driver="\"$MNT_DRV\""
+  result "$id" true "$r" "{\"log\": $(jstr "$FSCK_OUT")}"; log "repair $id: $r"
+}
+
 do_requests(){
-  local r id
-  for r in "$REQ"/*.eject; do [ -e "$r" ] || continue; id=$(basename "$r" .eject); rm -f "$r"
-    [[ "$id" =~ ^[a-f0-9]{8}$ ]] || continue; do_eject "$id"; done
-  # results older than 1 day
+  local r id body
+  for r in "$REQ"/*; do [ -e "$r" ] || continue
+    local b; b=$(basename "$r")
+    # a request still being written (empty / partial JSON) is left for the next round, then dropped after 10 s
+    REQ_NONCE=$(head -c 512 "$r" | python3 -c 'import json,sys,re;n=str(json.load(sys.stdin).get("nonce",""));print(n if re.fullmatch(r"[a-f0-9]{8,32}",n) else "")' 2>/dev/null) || {
+      if [ $(( $(date +%s) - $(stat -c %Y "$r" 2>/dev/null || echo 0) )) -gt 10 ]; then rm -f "$r"; fi; continue; }
+    case "$b" in
+      policy.default) local tmp; tmp=$(mktemp); head -c 4096 "$r" > "$tmp"; rm -f "$r"
+        local o; o=$("$POL" default "$tmp" 2>&1); local rc=$?; rm -f "$tmp"
+        [ $rc = 0 ] && result policy true "$o" || result policy false "$o"; log "policy default: $o"; continue ;;
+    esac
+    id=${b%.*}; local kind=${b##*.}
+    [[ "$id" =~ ^[a-f0-9]{8}$ ]] || { rm -f "$r"; continue; }
+    case "$kind" in
+      eject) rm -f "$r"; do_eject "$id" ;;
+      mode)  body=$(head -c 256 "$r" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("mode",""))' 2>/dev/null); rm -f "$r"; do_mode "$id" "$body" ;;
+      check) rm -f "$r"; do_check "$id" ;;
+      repair) rm -f "$r"; do_repair "$id" ;;
+      *) rm -f "$r" ;;
+    esac
+  done
   find "$RES" -name '*.json' -mmin +1440 -delete 2>/dev/null
 }
 
-do_cleanup(){ # remove empty unmounted dirs left from a crash/reboot
+do_cleanup(){
   for d in "$BASE"/*/; do [ -d "$d" ] || continue; mountpoint -q "$d" || rmdir "$d" 2>/dev/null; done
   for f in "$DRV"/*.json; do [ -e "$f" ] || continue; mountpoint -q "$(jget "$f" mount)" || rm -f "$f"; done
 }

@@ -28,6 +28,8 @@ const DEFS = {
   'acl.refusal_text':    ['این ربات خصوصی است.', 'str', null, 'Reply to unknown users on /start (empty = silent)'],
   'backup.keep_days':    [14, 'int', null, 'Daily DB backups to keep'],
   'backup.dir':          ['/data/backups/seemore', 'str', 'BACKUP_DIR', 'Backup directory'],
+  'usb.default_mode':    ['protected', 'str', 'USB_DEFAULT_MODE', 'Mode of a newly plugged, unknown drive: protected = read-only mount, check-only fsck, nothing written; writable = read-write', { enum: ['protected', 'writable'] }],
+  'usb.auto_repair':     [false, 'bool', null, 'Run a repairing fsck when a WRITABLE drive is plugged in (protected drives are never repaired)'],
   'usb.ignore_label_regex': ['', 'str', null, 'Drives whose label matches this regex are invisible to the bot (no notice, no listing, no marker)'],
   'jobs.progress_every_s': [4, 'int', null, 'Progress message edit interval (seconds)', { min: 2, max: 60 }],
   // ---- seemore API / panel ----
@@ -57,6 +59,15 @@ const DEFS = {
   'domains.panel_lan':    ['', 'str', 'PANEL_LAN_HOST', 'LAN plain-HTTP host of the panel (empty = off)', { host: true }],
   'domains.dl_public':    ['dl.example.com', 'str', 'DL_PUBLIC_HOST', 'Public HTTPS host of download links (empty = off)', { host: true }],
   'domains.dl_lan':       ['', 'str', 'DL_LAN_HOST', 'LAN plain-HTTP host of download links (empty = off)', { host: true }],
+  // ---- single sign-on (Caddy service blocks + parent-domain cookie; see docs/sso.md) ----
+  'sso.enabled':         [false, 'bool', 'SSO_ENABLED', 'Panel single sign-on for the media services (Caddy forward-auth + server-side app login); each app keeps its own login'],
+  'sso.public_domain':   ['', 'str', 'SSO_PUBLIC_DOMAIN', 'Public parent domain of the service hosts (<service>.<domain>, HTTPS); empty = off', { host: true }],
+  'sso.lan_domain':      ['', 'str', 'SSO_LAN_DOMAIN', 'LAN parent domain of the service hosts (<service>.<domain>, plain HTTP); empty = off', { host: true }],
+  'sso.oidc':            [false, 'bool', 'SSO_OIDC', 'Serve the OpenID Connect provider (/oidc/*, discovery) on the panel host, e.g. for the Jellyfin SSO plugin'],
+  'sso.oidc_issuer':     ['', 'str', 'SSO_OIDC_ISSUER', 'Fixed OIDC issuer URL (empty = derived from the request host), e.g. https://panel.example.com'],
+  'sso.jellyfin_deny':   ['', 'str', 'SSO_JELLYFIN_DENY', 'Jellyfin account names (comma-separated) that the OIDC sign-in must never log anyone into, in addition to every Jellyfin administrator'],
+  'sso.jellyfin_libraries': ['', 'str', 'SSO_JELLYFIN_LIBRARIES', 'Jellyfin libraries (names, comma-separated) given to accounts the OIDC sign-in creates on first login; empty = every library not used by a denied account'],
+  'sso.jellyfin_map':    ['', 'str', 'SSO_JELLYFIN_MAP', 'Exact 1:1 mapping panel username=Jellyfin account (comma-separated). A mapped panel user signs in to that EXISTING non-admin Jellyfin account (never created or changed) even if the name is in sso.jellyfin_deny; nobody else can reach it'],
   // ---- network / container ----
   'net.api_port':        [3002, 'int', 'API_PORT', 'Port of the seemore API + panel inside the container', { min: 1024, max: 65535 }],
   'net.links_port':      [3001, 'int', 'DL_PORT', 'Port of the download-link server inside the container', { min: 1024, max: 65535 }],

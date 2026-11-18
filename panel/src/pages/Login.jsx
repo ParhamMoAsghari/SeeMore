@@ -3,6 +3,7 @@ import { post, setCsrf } from '../api.js';
 import { useApp } from '../state.jsx';
 import { Btn, Field } from '../ui.jsx';
 import { n } from '../fmt.js';
+import { goNext } from '../oidcnext.js';
 
 export default function Login() {
   const { setMe } = useApp();
@@ -10,7 +11,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
   async function submit(e) {
     e.preventDefault(); setBusy(true); setErr('');
-    try { const r = await post('/auth/login', { username: u, password: p }); setCsrf(r.csrf); setMe(r); }
+    try { const r = await post('/auth/login', { username: u, password: p }); setCsrf(r.csrf); setMe(r); goNext(); }
     catch (x) {
       if (x.status === 429) setErr(`به‌دلیل تلاش‌های ناموفق، ورود موقتاً قفل شده است. ${n(Math.ceil((x.body.retryAfter || 60) / 60))} دقیقه‌ی دیگر دوباره امتحان کنید.`);
       else if (x.status === 401) setErr('نام کاربری یا رمز عبور درست نیست.');

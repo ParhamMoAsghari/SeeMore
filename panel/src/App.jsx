@@ -13,6 +13,7 @@ const Drives = lazy(() => import('./pages/Drives.jsx'));
 const Files = lazy(() => import('./pages/Files.jsx'));
 const Links = lazy(() => import('./pages/Links.jsx'));
 const Users = lazy(() => import('./pages/Users.jsx'));
+const Services = lazy(() => import('./pages/Services.jsx'));
 const Settings = lazy(() => import('./pages/Settings.jsx'));
 const Health = lazy(() => import('./pages/Health.jsx'));
 const Jobs = lazy(() => import('./pages/Jobs.jsx'));
@@ -20,6 +21,7 @@ const Jobs = lazy(() => import('./pages/Jobs.jsx'));
 // [path, label, icon, permission]
 export const NAV = [
   ['/', 'داشبورد', 'home', null],
+  ['/services', 'سرویس‌ها', 'grid', 'svc'],
   ['/search', 'جست‌وجو و درخواست', 'search', 'request'],
   ['/library', 'کتابخانه', 'film', 'library'],
   ['/downloads', 'دانلودها', 'download', 'downloads'],
@@ -66,6 +68,7 @@ export default function App() {
           <Suspense fallback={<Spinner />}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/services" element={guard('svc', <Services />)} />
               <Route path="/search" element={guard('request', <Search />)} />
               <Route path="/library/*" element={guard('library', <Library />)} />
               <Route path="/downloads" element={guard('downloads', <Downloads />)} />

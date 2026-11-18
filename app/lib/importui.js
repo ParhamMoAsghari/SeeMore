@@ -34,7 +34,7 @@ module.exports = function createImportUi(bale, store, present) {
 
   async function start(mid, driveId, rel) {
     const x = S.getDrive(driveId);
-    if (x) { await S.ensureMarker(x).catch(() => {}); x.marker = S.readMarker(x.mount); }
+    // import never writes to the source drive (no marker, no temp files): identity = composite / existing marker
     if (!x) return present('usb', mid, 'این حافظه دیگر وصل نیست.', kb([btn('↩️ حافظه‌ها', 'ud')]));
     const steps = { scan: '۱/۵ پیمایش فایل‌ها', classify: '۲/۵ دسته‌بندی (ویدیو، زیرنویس، نمونه، سایر)', identify: '۳/۵ شناسایی فنی ویدیوها (مدت، کیفیت)', match: '۴/۵ تطبیق با Radarr و Sonarr (شناسه‌های TMDb/TVDb)', dedupe: '۵/۵ بررسی تکراری‌ها' };
     const m = await present('usb', mid, `🔎 بررسی «${x.name}${rel ? '/' + rel : ''}»...\n${steps.walk}`, null);

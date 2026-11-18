@@ -156,8 +156,12 @@ async function mkdirp(dir) {
   while (!fs.existsSync(d)) { missing.unshift(d); const up = path.dirname(d); if (up === d) break; d = up; }
   for (const m of missing) { await fsp.mkdir(m).catch((e) => { if (e.code !== 'EEXIST') throw e; }); await fsyncDir(path.dirname(m)); }
 }
+// write guard: nothing is ever written under a protected / read-only drive (source drives of imports
+// and copies included); refusing here turns into WaitingForDevice('rofs') instead of a write attempt
+function guardWrite(p) { try { S.assertWritablePath(p); } catch (e) { if (e.code === 'EPROTECTED') throw new DriveError('rofs'); throw e; } return p; }
 async function copyFile(job, f, src, dst, onBytes) {
   const tmp = dst + '.part';
+  guardWrite(tmp);
   await mkdirp(path.dirname(dst));
   const live = mem.get(job.id);
   const ifd = await fsp.open(src, 'r');
@@ -193,7 +197,7 @@ async function reconcile(job) {
   const fl = files(job.id);
   for (const f of fl) {
     if (f.status !== 'copying' && f.status !== 'verifying') continue;
-    try { const dst = resolve(job.data.dst, f.dst); await fsp.unlink(dst + '.part').catch(() => {}); } catch (e) { if (e instanceof DriveError) throw e; }
+    try { const dst = resolve(job.data.dst, f.dst); if (S.driveAt(dst) && !S.writable(S.driveAt(dst))) { setFile(job.id, f.idx, { status: 'pending' }); continue; } await fsp.unlink(dst + '.part').catch(() => {}); } catch (e) { if (e instanceof DriveError) throw e; }
     setFile(job.id, f.idx, { status: 'pending' });
   }
   // re-verify the last finished file (a power cut can lose data that was reported as written)
@@ -273,7 +277,7 @@ async function run(job) {
         const st2 = await fsp.stat(tmp);
         if (st2.size !== f.size || (await sampleHash(tmp, st2.size)) !== hash) { await fsp.unlink(tmp).catch(() => {}); throw Object.assign(new Error('verify failed'), { code: 'EIO' }); }
         await hook('before_rename');
-        await fsp.rename(tmp, dst);
+        guardWrite(dst); await fsp.rename(tmp, dst);
         await fsyncDir(path.dirname(dst));
         setFile(job.id, f.idx, { status: 'done', err: null });
         live.done = base + f.size;
@@ -308,7 +312,7 @@ async function run(job) {
     if (job.kind === 'usb_move') {
       job = get(job.id);
       for (const f of files(job.id).filter((x) => x.status === 'done')) {
-        try { await fsp.unlink(resolve(job.data.src, f.src)); } catch (e) { if (e.code !== 'ENOENT') { const k = classify(e, job); if (k) throw new DriveError(k); } }
+        try { await fsp.unlink(guardWrite(resolve(job.data.src, f.src))); } catch (e) { if (e.code !== 'ENOENT') { const k = classify(e, job); if (k) throw new DriveError(k); } }
       }
       if (job.data.srcRoot) { try { await removeEmptyDirs(resolve(job.data.src, job.data.srcRoot)); } catch {} }
       job.data.movedSrc = true; saveData(job);

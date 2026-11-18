@@ -5,6 +5,7 @@ import { useApp, useLoad } from '../state.jsx';
 import { Badge, Card, Empty, Progress, Spinner, Stat } from '../ui.jsx';
 import { ago, bytes, dur, n, pct, speed } from '../fmt.js';
 import JobCard from '../components/JobCard.jsx';
+import { ServicesCard } from './Services.jsx';
 
 export default function Dashboard() {
   const { me, can, live } = useApp();
@@ -19,6 +20,7 @@ export default function Dashboard() {
   return (
     <div className="stack">
       <div className="page-h"><h2>سلام{me.name ? ` ${me.name}` : ''} 👋</h2><span className="muted small">{live.connected ? 'به‌روزرسانی زنده فعال است' : 'در حال اتصال…'}</span></div>
+      <ServicesCard />
       {srv && <div className="grid g4">
         <Stat icon="pulse" label="سرویس‌ها" value={`${n(okSvc)} از ${n(srv.services.length)}`} sub={okSvc === srv.services.length ? 'همه سالم' : srv.services.filter(([, r]) => !r.ok).map(([s]) => s).join('، ')} />
         <Stat icon="drive" label="فضای آزاد آرشیو" value={srv.disk ? bytes(srv.disk.freeSpace) : '—'} sub={srv.disk ? `از ${bytes(srv.disk.totalSpace)}` : ''} />

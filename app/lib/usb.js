@@ -32,12 +32,59 @@ function readDrives() {
       j.fsName = FS_NAME[j.fstype] || j.fstype;
       j.title = j.label || [j.vendor, j.model].filter(Boolean).join(' ') || j.name;
       j.marker = readMarker(j.mount);
+      // write protection: anything that is not explicitly 'writable' (missing / unknown mode from an
+      // older host helper included) is protected; the real mount flag is checked too (fail-safe)
+      j.mode = j.mode === 'writable' ? 'writable' : 'protected';
+      j.mountRo = mountRo(j.mount);
+      j.protected = j.mode !== 'writable';
+      j.ro = !!(j.ro || j.protected || j.mountRo);
       out.push(j);
     } catch {}
   }
   return out.sort((a, b) => a.mountedAt - b.mountedAt);
 }
 const getDrive = (id) => readDrives().find((x) => x.id === id) || null;
+// is the mount point read-only right now (per-mount or superblock flag), from /proc/self/mountinfo
+function mountRo(mp) {
+  try {
+    const unesc = (s) => s.replace(/\\([0-7]{3})/g, (_, o) => String.fromCharCode(parseInt(o, 8)));
+    let hit = null;
+    for (const l of fs.readFileSync('/proc/self/mountinfo', 'utf8').split('\n')) {
+      const f = l.split(' '); if (f.length < 7) continue;
+      if (unesc(f[4]) !== mp) continue;
+      const sep = f.indexOf('-'); const sb = sep > 0 ? (f[sep + 3] || '') : '';
+      hit = f[5].split(',').includes('ro') || sb.split(',').includes('ro'); // last entry wins (stacked mounts)
+    }
+    return hit === true;
+  } catch { return false; }
+}
+
+// ---------- write protection ----------
+const PROTECTED_MSG = '🔒 این حافظه محافظت‌شده (فقط‌خواندنی) است؛ کپی روی آن، جابه‌جایی، تغییر نام، ساخت پوشه و حذف ممکن نیست.';
+const RO_MSG = '🔒 این حافظه فقط‌خواندنی وصل شده است؛ نوشتن روی آن ممکن نیست.';
+const writeErr = (x) => Object.assign(new Error(x && x.protected ? PROTECTED_MSG : RO_MSG), { user: true, status: 403, code: 'EPROTECTED' });
+const writable = (x) => !!x && x.mode === 'writable' && !x.ro && !x.mountRo;
+function assertWritable(x) { if (!writable(x)) throw writeErr(x); return x; }
+// the drive (if any) whose mount contains an absolute path; used by the job engine before every write
+function driveAt(abs) {
+  const p = path.resolve(abs);
+  return readDrives().find((x) => p === x.mount || p.startsWith(x.mount + '/')) || null;
+}
+function assertWritablePath(abs) {
+  const p = path.resolve(abs);
+  if (p === USB_ROOT || p.startsWith(USB_ROOT + '/')) { const x = driveAt(p); if (!x || !writable(x)) throw writeErr(x); }
+  return p;
+}
+const modeLabel = (x) => (x.protected ? '🔒 محافظت‌شده (فقط‌خواندنی)' : x.ro ? '🔒 فقط‌خواندنی' : '✏️ قابل نوشتن');
+const FSCK_FA = { clean: '✅ سالم', dirty: '⚠️ قبلاً بدون جداسازی امن جدا شده', repaired: '🛠 تعمیر شد', skipped: 'بررسی نشد (این فرمت)', timeout: '⏱ بررسی طول کشید و متوقف شد' };
+const fsckLabel = (r) => (!r ? '' : FSCK_FA[r] || (/^errors/.test(r) ? '❗ خطای فایل‌سیستم (تعمیر نشد)' : r));
+// short health line for notices/lists: nothing when the drive was ejected safely and is clean
+const fsckProblem = (r) => r === 'dirty' || /^errors/.test(r || '');
+const healthNote = (r) => (r === 'dirty' ? '⚠️ این فلش قبلاً بدون جداسازی امن جدا شده؛ بعداً چک کن.' : /^errors/.test(r || '') ? '❗ فایل‌سیستم این فلش خطا دارد؛ بعداً روی کامپیوتر چکش کن.' : '');
+// how a drive left (written by the host helper on eject / unplug): { id, name, safe, ro, t } or null
+function readGone(id) {
+  try { return JSON.parse(fs.readFileSync(path.join(CTL, 'gone', `${id}.json`), 'utf8')); } catch { return null; }
+}
 
 // ---------- device identity ----------
 // A drive is identified by a composite of: seemore marker (.seemore/id, random, written when the drive
@@ -48,7 +95,8 @@ const getDrive = (id) => readDrives().find((x) => x.id === id) || null;
 const MARK_DIR = '.seemore', MARK_FILE = 'id';
 function readMarker(mount) { try { const v = fs.readFileSync(path.join(mount, MARK_DIR, MARK_FILE), 'utf8').trim(); return /^[a-f0-9]{32}$/.test(v) ? v : null; } catch { return null; } }
 async function ensureMarker(drive) {
-  if (!drive || drive.ro) return drive && drive.marker || null;
+  // only on drives the owner made writable; protected / read-only drives are never written to
+  if (!drive || !writable(drive)) return drive && drive.marker || null;
   const cur = readMarker(drive.mount); if (cur) return cur;
   try {
     const dir = path.join(drive.mount, MARK_DIR); await fsp.mkdir(dir, { recursive: true });
@@ -82,20 +130,28 @@ function findByIdent(ep) {
   return ds.find((x) => ep.uuid && x.uuid === ep.uuid && x.id === ep.id) || null;
 }
 
-async function eject(id) {
-  const req = path.join(CTL, 'requests', `${id}.eject`);
+// requests to the host helper (/usr/local/sbin/usb-automount requests), one result file per drive id
+async function ctlRequest(id, kind, body = {}, waitS = 30) {
+  if (!/^[a-f0-9]{8}$/.test(id) && id !== 'policy') throw new Error('bad drive id');
+  const name = id === 'policy' ? 'policy.default' : `${id}.${kind}`;
+  const req = path.join(CTL, 'requests', name);
   const res = path.join(CTL, 'results', `${id}.json`);
-  const t0 = Math.floor(Date.now() / 1000) - 1;
-  await fsp.writeFile(req, JSON.stringify({ id, t: Date.now() }));
-  for (let i = 0; i < 60; i++) {
+  const nonce = require('crypto').randomBytes(8).toString('hex');
+  await fsp.writeFile(req, JSON.stringify({ id, t: Date.now(), nonce, ...body })); // one small write; the helper retries a partial read
+  for (let i = 0; i < waitS * 2; i++) {
     await U.sleep(500);
     try {
       const r = JSON.parse(await fsp.readFile(res, 'utf8'));
-      if (r.t >= t0) return r;
+      if (r.nonce === nonce) return r; // only the answer to THIS request (result files are reused per drive)
     } catch {}
   }
   return { ok: false, msg: 'timeout' };
 }
+const eject = (id) => ctlRequest(id, 'eject');
+const setMode = (id, mode) => { if (!['protected', 'writable'].includes(mode)) throw new Error('bad mode'); return ctlRequest(id, 'mode', { mode }, 60); };
+const checkDrive = (id) => ctlRequest(id, 'check', {}, 700);
+const repairDrive = (id) => ctlRequest(id, 'repair', {}, 1000);
+const pushPolicy = (p) => ctlRequest('policy', 'default', { default_mode: p.default_mode === 'writable' ? 'writable' : 'protected', auto_repair: p.auto_repair === true }, 20);
 
 // ---------- library (filesystem, so subtitles next to files are included) ----------
 let libCache = { t: 0, m: [], s: [] };
@@ -180,6 +236,7 @@ async function dirSize(p) {
   return n;
 }
 async function removePath(drive, rel) {
+  assertWritable(drive);
   if (!rel) throw new Error('ریشه‌ی فلش را نمی‌شود حذف کرد');
   const p = safeJoin(drive.mount, rel);
   await fsp.rm(p, { recursive: true, force: false });
@@ -226,6 +283,7 @@ async function freeName(dir, name) {
   throw new Error('no free name');
 }
 async function mkdirOn(drive, rel, name) {
+  assertWritable(drive);
   name = checkName(name, drive.fstype);
   const dir = safeJoin(drive.mount, rel);
   const p = path.join(dir, name);
@@ -234,6 +292,7 @@ async function mkdirOn(drive, rel, name) {
   return rel ? `${rel}/${name}` : name;
 }
 async function renameOn(drive, rel, name) {
+  assertWritable(drive);
   if (!rel) throw Object.assign(new Error('ریشه را نمی‌شود تغییر نام داد'), { user: true });
   name = checkName(name, drive.fstype);
   const p = safeJoin(drive.mount, rel);
@@ -246,6 +305,7 @@ async function renameOn(drive, rel, name) {
 }
 // same drive move: one rename (atomic). mode: 'ask' | 'overwrite' | 'keep'
 async function moveOn(drive, rel, destRel, mode = 'ask') {
+  assertWritable(drive);
   const p = safeJoin(drive.mount, rel);
   const dir = safeJoin(drive.mount, destRel);
   if (dir === p || dir.startsWith(p + '/')) throw Object.assign(new Error('نمی‌شود یک پوشه را به داخل خودش منتقل کرد'), { user: true });
@@ -278,4 +338,4 @@ async function walkFiles(root, rel, out = [], limit = 20000) {
   return out;
 }
 
-Object.assign(module.exports, { readDrives, getDrive, readMarker, ensureMarker, identOf, endpoint, identMatch, findByIdent, eject, library, listDir, dirSize, removePath, plan, safeJoin, cleanName, checkName, freeName, exists, mkdirOn, renameOn, moveOn, walkFiles, fsyncDir, hidden, VIDEO, SUBS, FAT_MAX, USB_ROOT, MEDIA, FS_NAME });
+Object.assign(module.exports, { mountRo, writable, assertWritable, assertWritablePath, driveAt, writeErr, PROTECTED_MSG, modeLabel, fsckLabel, fsckProblem, healthNote, readGone, ctlRequest, setMode, checkDrive, repairDrive, pushPolicy, readDrives, getDrive, readMarker, ensureMarker, identOf, endpoint, identMatch, findByIdent, eject, library, listDir, dirSize, removePath, plan, safeJoin, cleanName, checkName, freeName, exists, mkdirOn, renameOn, moveOn, walkFiles, fsyncDir, hidden, VIDEO, SUBS, FAT_MAX, USB_ROOT, MEDIA, FS_NAME });
