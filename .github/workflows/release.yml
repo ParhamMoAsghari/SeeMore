@@ -1,0 +1,29 @@
+name: Release
+# Creates the GitHub release for the version in VERSION (tag v<VERSION>) after CI passed on main.
+# Notes come from RELEASE_NOTES.md. Does nothing if the tag already exists.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+      - name: Create tag + release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          V="v$(tr -d ' \n' < VERSION)"
+          if gh release view "$V" >/dev/null 2>&1; then echo "release $V exists"; exit 0; fi
+          gh release create "$V" --target "$SHA" --title "seemore $V" --notes-file RELEASE_NOTES.md

@@ -1,0 +1,2 @@
+# Auto-mount removable USB filesystems for seemore (see /usr/local/sbin/usb-automount)
+ACTION=="add|change", SUBSYSTEM=="block", ENV{ID_BUS}=="usb", ENV{ID_FS_USAGE}=="filesystem", ENV{UDISKS_AUTO}="0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="usb-mount@%k.service"

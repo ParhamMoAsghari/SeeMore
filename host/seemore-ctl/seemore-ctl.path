@@ -1,0 +1,9 @@
+[Unit]
+Description=seemore host helper trigger (watch /run/seemore-ctl/requests)
+
+[Path]
+PathExistsGlob=/run/seemore-ctl/requests/*.json
+Unit=seemore-ctl.service
+
+[Install]
+WantedBy=multi-user.target

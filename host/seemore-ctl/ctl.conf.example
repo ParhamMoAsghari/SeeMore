@@ -1,0 +1,11 @@
+{
+  "compose": {
+    "seemore": {
+      "dir": "__SEEMORE_DIR__",
+      "file": "docker-compose.yml",
+      "service": "seemore",
+      "env": { "API_PORT": "port", "DL_PORT": "port", "SEEMORE_MEM_LIMIT": "mem", "SEEMORE_PANEL_BIND": "private_bind" }
+    }
+  },
+  "caddy": { "container": "__CADDY_CONTAINER__", "config": "/etc/caddy/Caddyfile" }
+}

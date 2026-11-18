@@ -1,0 +1,1387 @@
+openapi: 3.0.3
+info:
+  title: seemore API
+  version: "1.0.0"
+  description: "Central seemore backend: single source of truth for the Telegram/Bale bots and the web panel. All paths are under /api/v1. Authentication: session cookie sm_session (HttpOnly, SameSite=Strict, Secure on https) + X-CSRF-Token header on every non-GET request (same-origin is also checked). Permissions follow perms.js; x-permission names the permission each operation needs (admin = owner only)."
+servers:
+  - url: /api/v1
+security:
+  - cookie: []
+    csrf: []
+components:
+  securitySchemes:
+    cookie: {type: apiKey, in: cookie, name: sm_session}
+    csrf: {type: apiKey, in: header, name: X-CSRF-Token}
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: {type: string}
+        needsConfirm: {type: boolean}
+        plan: {type: array, items: {type: object}}
+  responses:
+    Error:
+      description: Error (400 validation, 401 not logged in, 403 permission/CSRF, 404, 409 confirmation or conflict, 429 rate limit)
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+paths:
+  /arr/profiles:
+    get:
+      tags: [settings]
+      summary: "Radarr/Sonarr quality profiles + request quality keys"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /arr/rootfolders:
+    get:
+      tags: [settings]
+      summary: "Radarr/Sonarr root folders"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      tags: [settings]
+      summary: "Add a root folder (must be under /data/media)"
+      description: "Body: {kind, path}"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /audit:
+    get:
+      tags: [users]
+      summary: "Audit log"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: "Log in (public). Body {username, password}. Sets HttpOnly cookie sm_session and returns csrf."
+      description: "Lockout: per user+IP after panel.lock_after failures for panel.lock_minutes; per IP after panel.ip_lock_after failures/hour. 429 with retryAfter."
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: "Log out"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/password:
+    post:
+      tags: [auth]
+      summary: "Change own panel password"
+      description: "Body: {current, next}"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/password/shared:
+    post:
+      tags: [auth]
+      summary: "Owner: go back to the shared system password"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/session:
+    get:
+      tags: [auth]
+      summary: "Current session: user, perms, feature flags, csrf token"
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/sessions:
+    get:
+      tags: [auth]
+      summary: "Own active sessions"
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [auth]
+      summary: "Close all other own sessions"
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /calendar:
+    get:
+      tags: [library]
+      summary: "Upcoming episodes and movie releases (days<=60)"
+      x-permission: calendar
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /downloads:
+    get:
+      tags: [downloads]
+      summary: "Active torrents with progress"
+      x-permission: downloads
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /downloads/{hash}:
+    delete:
+      tags: [downloads]
+      summary: "Remove a torrent (query blocklist=1 also blocklists the release)"
+      x-permission: downloads
+      parameters:
+        - {name: hash, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /downloads/{hash}/pause:
+    post:
+      tags: [downloads]
+      summary: "Pause a torrent"
+      x-permission: downloads
+      parameters:
+        - {name: hash, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /downloads/{hash}/resume:
+    post:
+      tags: [downloads]
+      summary: "Resume a torrent"
+      x-permission: downloads
+      parameters:
+        - {name: hash, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /events:
+    get:
+      tags: [events]
+      summary: "Server-Sent Events stream"
+      description: "Durable job events carry `id: <seq>`; reconnect with Last-Event-ID (or ?after=seq) to replay missed ones. Live events (progress, drives, settings) have no id."
+      responses:
+        '200':
+          description: OK
+          content:
+            "text/event-stream": {schema: {type: string}}
+        default: {$ref: '#/components/responses/Error'}
+  /files/roots:
+    get:
+      tags: [files]
+      summary: "Server file roots and free space"
+      x-permission: files
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /files/{root}/entries:
+    get:
+      tags: [files]
+      summary: "List a server folder (read-only)"
+      x-permission: files
+      parameters:
+        - {name: root, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /files/{root}/metadata:
+    get:
+      tags: [files]
+      summary: "Metadata of a server file"
+      x-permission: files
+      parameters:
+        - {name: root, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /health:
+    get:
+      tags: [system]
+      summary: "Health: services, process, drives; job recovery and outbox reported separately"
+      description: "Unauthenticated callers only get {ok}."
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /indexers:
+    get:
+      tags: [settings]
+      summary: "Prowlarr indexers with status"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      tags: [settings]
+      summary: "Add an indexer"
+      description: "Body: {definitionName, fields:{}, priority?, enable?}"
+      x-permission: admin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /indexers/schema:
+    get:
+      tags: [settings]
+      summary: "Indexer definitions available to add (query q)"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /indexers/{id}:
+    get:
+      tags: [settings]
+      summary: "One indexer (secret fields masked)"
+      x-permission: admin
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [settings]
+      summary: "Enable/disable, priority, fields"
+      x-permission: admin
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [settings]
+      summary: "Remove an indexer"
+      x-permission: admin
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /indexers/{id}/test:
+    post:
+      tags: [settings]
+      summary: "Test an indexer"
+      x-permission: admin
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /invites:
+    get:
+      tags: [users]
+      summary: "Open invite codes"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      tags: [users]
+      summary: "Create a one-time invite"
+      description: "Body: {perms, grantDur?, grantUntil?, ttl}"
+      x-permission: admin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /invites/{code}:
+    delete:
+      tags: [users]
+      summary: "Delete an invite"
+      x-permission: admin
+      parameters:
+        - {name: code, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /jobs:
+    get:
+      tags: [jobs]
+      summary: "Jobs (query active=1, limit)"
+      x-permission: any
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /jobs/{id}:
+    get:
+      tags: [jobs]
+      summary: "Job with live progress (query files=1 for per-file state)"
+      x-permission: any
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /jobs/{id}/cancel:
+    post:
+      tags: [jobs]
+      summary: "Cancel a job (partial files are cleaned, healthy files are never touched)"
+      x-permission: any
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /jobs/{id}/events:
+    get:
+      tags: [jobs]
+      summary: "Durable events of one job"
+      x-permission: any
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /jobs/{id}/resume:
+    post:
+      tags: [jobs]
+      summary: "Resume a paused / waiting job"
+      x-permission: any
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /library:
+    get:
+      tags: [library]
+      summary: "Movies (kind=m) or series (kind=s) in the archive"
+      x-permission: library
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /library/files:
+    get:
+      tags: [library]
+      summary: "File-level library (movie folders, series episodes with subtitles) for multi-select"
+      x-permission: library
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /library/movies/{id}:
+    get:
+      tags: [library]
+      summary: "Movie details: file, media info, subtitles"
+      x-permission: library
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /library/recent:
+    get:
+      tags: [library]
+      summary: "Recently added items"
+      x-permission: library
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /library/series/{id}:
+    get:
+      tags: [library]
+      summary: "Series details: seasons, episodes, files, subtitle status"
+      x-permission: library
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /library/{kind}/{id}:
+    delete:
+      tags: [library]
+      summary: "Delete a movie/series (query deleteFiles=1 removes files too)"
+      x-permission: lib_delete
+      parameters:
+        - {name: kind, in: path, required: true, schema: {type: string}}
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /library/{kind}/{id}/grab:
+    post:
+      tags: [library]
+      summary: "Grab one release from a manual search"
+      description: "Body: {guid, indexerId}"
+      x-permission: request
+      parameters:
+        - {name: kind, in: path, required: true, schema: {type: string}}
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /library/{kind}/{id}/releases:
+    get:
+      tags: [library]
+      summary: "Manual search: list releases"
+      x-permission: request
+      parameters:
+        - {name: kind, in: path, required: true, schema: {type: string}}
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /library/{kind}/{id}/search:
+    post:
+      tags: [library]
+      summary: "Trigger a new search for a movie / series / season"
+      description: "Body: {season?}"
+      x-permission: request
+      parameters:
+        - {name: kind, in: path, required: true, schema: {type: string}}
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /media/posters/{ref}:
+    get:
+      tags: [media]
+      summary: "Poster image proxied and cached by the API"
+      description: "Works even when the client can not reach TMDB/image hosts."
+      parameters:
+        - {name: ref, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "image/*": {schema: {type: string}}
+        default: {$ref: '#/components/responses/Error'}
+  /media/qualities:
+    get:
+      tags: [media]
+      summary: "Quality options for a request (kind=m|s)"
+      x-permission: request
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /media/request-defaults:
+    get:
+      tags: [media]
+      summary: "Default quality / root folder used for requests"
+      x-permission: request
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /media/requests:
+    post:
+      tags: [media]
+      summary: "Request a movie or series"
+      description: "Body: {kind:\"m\"|\"s\", key (search result key), quality, mode:\"all\"|\"future\"|\"seasons\", seasons:[n]}. Idempotent: an existing title returns {already:true}. Adds to Radarr/Sonarr and starts the search (domain operation, not a passthrough)."
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /media/search:
+    get:
+      tags: [media]
+      summary: "Search movies and series (Radarr/Sonarr lookup). Query: term, kind=all|m|s"
+      x-permission: request
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /openapi.yaml:
+    get:
+      tags: [meta]
+      summary: "This document (public)"
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/yaml": {schema: {type: string}}
+        default: {$ref: '#/components/responses/Error'}
+  /panel-accounts:
+    get:
+      tags: [users]
+      summary: "Panel login accounts (no hashes)"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /panel-accounts/{username}:
+    put:
+      tags: [users]
+      summary: "Create / reset a panel account for a granted user"
+      description: "Body: {uid, password (>=10 chars)}"
+      x-permission: admin
+      parameters:
+        - {name: username, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [users]
+      summary: "Delete a panel account"
+      x-permission: admin
+      parameters:
+        - {name: username, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /permissions:
+    get:
+      tags: [users]
+      summary: "Permission keys and presets"
+      x-permission: any
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /settings:
+    get:
+      tags: [settings]
+      summary: "Settings catalog with value, default, validation spec and change class"
+      description: "Classes: hot (instant), reload (container restart via socket proxy), recreate (host helper recreates the container with new compose env), caddy (generate + validate + graceful reload)."
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      tags: [settings]
+      summary: "Apply settings"
+      description: "Body: {changes:[{key, value}], confirm}. Disruptive classes without confirm -> 409 {needsConfirm, plan}."
+      x-permission: admin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /settings/caddy:
+    get:
+      tags: [settings]
+      summary: "Generated Caddy snippet vs. current file"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /settings/history:
+    get:
+      tags: [settings]
+      summary: "Change history (old -> new, class, status)"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /settings/history/{id}/rollback:
+    post:
+      tags: [settings]
+      summary: "Roll back one change"
+      description: "Body: {confirm}"
+      x-permission: admin
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /shares:
+    get:
+      tags: [shares]
+      summary: "Download links (query all=1 for every user, owner only)"
+      x-permission: links
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      tags: [shares]
+      summary: "Create a download link"
+      description: "Body: {sel | files, kind:\"zip\"|\"rar\"|\"file\", title?, expires? (epoch ms or null), maxDl?}. Response has public and LAN URLs."
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /shares/{token}:
+    get:
+      tags: [shares]
+      summary: "Link details + recent downloads"
+      x-permission: links
+      parameters:
+        - {name: token, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [shares]
+      summary: "Change expiry"
+      description: "Body: {expires}"
+      x-permission: links
+      parameters:
+        - {name: token, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [shares]
+      summary: "Revoke a link"
+      x-permission: links
+      parameters:
+        - {name: token, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/devices:
+    get:
+      tags: [storage]
+      summary: "Connected external drives (identity: fs UUID + device serial + partition + seemore marker)"
+      x-permission: usb_view
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/devices/{id}/eject:
+    post:
+      tags: [storage]
+      summary: "Safe eject (sync, unmount, power-off); 409 while a job uses the drive"
+      x-permission: usb_view
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/devices/{id}/entries:
+    get:
+      tags: [storage]
+      summary: "List a folder on a drive (query path)"
+      x-permission: usb_view
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [storage]
+      summary: "Delete a file/folder on a drive (query path)"
+      x-permission: usb_manage
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/devices/{id}/metadata:
+    get:
+      tags: [storage]
+      summary: "Metadata of any file/folder on a drive (media streams, image EXIF, PDF, archive listing, text encoding...)"
+      x-permission: usb_view
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/devices/{id}/mkdir:
+    post:
+      tags: [storage]
+      summary: "Create a folder"
+      description: "Body: {path, name}"
+      x-permission: usb_manage
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/devices/{id}/move:
+    post:
+      tags: [storage]
+      summary: "Move or copy within a drive or to another drive"
+      description: "Body: {path, to (drive id), dest, op:\"move\"|\"copy\", mode:\"ask\"|\"keep\"|\"overwrite\"}. Returns {conflict} when mode=ask and the name exists; cross-drive operations become a durable job."
+      x-permission: usb_manage
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/devices/{id}/rename:
+    post:
+      tags: [storage]
+      summary: "Rename a file or folder"
+      description: "Body: {path, name}"
+      x-permission: usb_manage
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/exports:
+    post:
+      tags: [storage]
+      summary: "Start a library -> drive copy job"
+      description: "Same body as /plan. Returns the job."
+      x-permission: usb_copy
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/exports/plan:
+    post:
+      tags: [storage]
+      summary: "Plan a library -> drive copy (space, FAT32 4 GB limit, already-present files)"
+      description: "Body: {drive, sel:{movies:[folder], series:[{name, seasons?, eps?}]}, folder}"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/imports:
+    post:
+      tags: [storage]
+      summary: "Confirm a scan and start the import job"
+      description: "Body: {scanId, sel:{movies:{i:{on,replace}}, series:{i:{on,replace,eps:{\"SxE\":false}}}, other, unknownAsOther}}"
+      x-permission: usb_import
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/imports/candidates:
+    get:
+      tags: [storage]
+      summary: "Search match candidates (kind, term)"
+      x-permission: usb_import
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/imports/scans:
+    post:
+      tags: [storage]
+      summary: "Scan a drive folder for import (Scan -> Classify -> Identify -> Match -> Deduplicate)"
+      description: "Body: {drive, path}. Returns scanId + movies/series/unknown/other/skipped."
+      x-permission: usb_import
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/imports/scans/{id}:
+    get:
+      tags: [storage]
+      summary: "Get a scan result"
+      x-permission: usb_import
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /storage/imports/scans/{id}/rematch:
+    post:
+      tags: [storage]
+      summary: "Change the match of one scanned item"
+      description: "Body: {kind:\"movie\"|\"series\", index, cand}"
+      x-permission: usb_import
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /subtitles/providers:
+    get:
+      tags: [settings]
+      summary: "Bazarr subtitle providers (secrets masked)"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /subtitles/providers/enabled:
+    put:
+      tags: [settings]
+      summary: "Set the enabled providers"
+      description: "Body: {providers:[name]}"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /subtitles/providers/{name}:
+    patch:
+      tags: [settings]
+      summary: "Configure one provider"
+      description: "Body: {fields:{}}"
+      x-permission: admin
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /system/containers:
+    get:
+      tags: [system]
+      summary: "Containers visible through the restricted Docker proxy"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /system/containers/{name}/logs:
+    get:
+      tags: [system]
+      summary: "Container logs (secrets redacted, query tail)"
+      x-permission: admin
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /system/containers/{name}/restart:
+    post:
+      tags: [system]
+      summary: "Restart an allow-listed container"
+      x-permission: admin
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /system/ctl:
+    get:
+      tags: [system]
+      summary: "Host helper status and requests"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /system/notifications:
+    get:
+      tags: [system]
+      summary: "Bot notification outbox"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /system/status:
+    get:
+      tags: [system]
+      summary: "Server status (load, memory, disk, indexers, warnings)"
+      x-permission: server
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /torrent/alt-speed:
+    get:
+      tags: [settings]
+      summary: "qBittorrent alternative speed mode"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /torrent/alt-speed/toggle:
+    post:
+      tags: [settings]
+      summary: "Toggle alternative speed mode"
+      x-permission: admin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /users:
+    get:
+      tags: [users]
+      summary: "Granted bot users"
+      x-permission: admin
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      tags: [users]
+      summary: "Grant access"
+      description: "Body: {uid, perms:[], expires?, name?}"
+      x-permission: admin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /users/{uid}:
+    get:
+      tags: [users]
+      summary: "One user + audit"
+      x-permission: admin
+      parameters:
+        - {name: uid, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [users]
+      summary: "Change perms / expiry / note"
+      x-permission: admin
+      parameters:
+        - {name: uid, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [users]
+      summary: "Remove a user (and their panel sessions)"
+      parameters:
+        - {name: uid, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /users/{uid}/extend:
+    post:
+      tags: [users]
+      summary: "Set a new expiry"
+      description: "Body: {expires}"
+      x-permission: admin
+      parameters:
+        - {name: uid, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}
+  /users/{uid}/revoke:
+    post:
+      tags: [users]
+      summary: "Revoke access"
+      x-permission: admin
+      parameters:
+        - {name: uid, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: OK
+          content:
+            "application/json": {schema: {type: object}}
+        default: {$ref: '#/components/responses/Error'}

@@ -1,0 +1,18 @@
+# secrets and runtime state — never commit
+.env
+.env.*
+!.env.example
+config.env
+state/
+appdata/
+data/
+backups/
+config/Caddyfile
+# build output / deps
+app/public/
+**/node_modules/
+**/__pycache__/
+*.pyc
+*.log
+app/tests/reference/logs/
+app/tests/reference/last_run.txt

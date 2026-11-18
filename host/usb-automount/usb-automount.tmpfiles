@@ -1,0 +1,6 @@
+# /etc/tmpfiles.d/usb-automount.conf — runtime dirs of the seemore USB helper (recreated at boot)
+d /run/usb-automount          0755 root root -
+d /run/usb-automount/drives   0755 root root -
+d /run/usb-automount/requests 0770 __UID__ __GID__ -
+d /run/usb-automount/results  0755 root root -
+d __USB_BASE__ 0755 root root -

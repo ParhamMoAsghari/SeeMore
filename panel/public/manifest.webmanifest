@@ -1,0 +1,1 @@
+{ "name": "seemore", "short_name": "seemore", "start_url": "/", "display": "standalone", "dir": "rtl", "lang": "fa", "background_color": "#0f1420", "theme_color": "#0f1420", "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }] }

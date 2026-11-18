@@ -1,0 +1,6 @@
+[Unit]
+Description=Process seemore USB eject requests
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/usb-automount requests
