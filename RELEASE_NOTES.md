@@ -40,6 +40,7 @@ Prowlarr, qBittorrent, Bazarr, Jellyfin and Seerr.
   history and rollback; domains, ports, feature flags, bot, schedules, indexers (Prowlarr), subtitle providers
   (Bazarr), qBittorrent, *arr root folders, subfa tuning.
 - **subfa** — automatic Persian subtitles (Bazarr first, subf2m fallback, retries).
+- **Licence** — PolyForm Noncommercial License 1.0.0 (personal / noncommercial use only; see LICENSE and NOTICE.md).
 - **Packaging** — one `docker-compose.yml` with profiles (`media`, `subfa`, `proxy`), multi-stage `Dockerfile`
   (panel build + core), `.env.example` documenting every variable, `install.sh` + `Makefile`, `host/install.sh` for the
   udev/systemd helpers (USB auto-mount, seemore-ctl), optional `compose/iran.yml` overlay and mirror build args, docs

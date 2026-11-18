@@ -5,5 +5,5 @@
   "description": "seemore core: job engine, domain services, API + panel server, messenger bot interface",
   "main": "bot.js",
   "engines": { "node": ">=22.5" },
-  "license": "UNLICENSED"
+  "license": "PolyForm-Noncommercial-1.0.0"
 }

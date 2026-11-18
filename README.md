@@ -80,7 +80,11 @@ v1.0.0 contains only features that were implemented **and** tested. Known limita
 not yet tested; the Telegram adapter is tested against a mock Bot API only) are listed in
 [CHANGELOG.md](CHANGELOG.md#known-limitations).
 
-Licence: all rights reserved (see [LICENSE](LICENSE)).
+## License
+**Personal / noncommercial use only.** seemore is source-available under the
+[PolyForm Noncommercial License 1.0.0](LICENSE): you may use, change and share it for personal and other
+noncommercial purposes; commercial use needs a separate written licence from the copyright holder. Third-party
+components keep their own licences ([NOTICE.md](NOTICE.md)).
 
 ---
 
@@ -130,5 +134,11 @@ sh install.sh   && $EDITOR .env && sudo make host && docker compose build seemor
 
 **محدودیت‌های شناخته‌شده‌ی نسخه‌ی ۱٫۰٫۰:** وصل کردن فلش واقعی هنوز تست نشده (تست‌ها با درایو مجازی انجام شده‌اند) و
 ربات تلگرام فقط با یک شبیه‌ساز API تلگرام تست شده است. فهرست کامل در [CHANGELOG.md](CHANGELOG.md).
+
+### مجوز
+
+**فقط برای استفاده‌ی شخصی و غیرتجاری.** seemore تحت مجوز [PolyForm Noncommercial 1.0.0](LICENSE) منتشر شده است:
+استفاده، تغییر و اشتراک‌گذاری برای مقاصد شخصی و غیرتجاری آزاد است و هر نوع استفاده‌ی تجاری به مجوز کتبی جداگانه از
+صاحب اثر نیاز دارد.
 
 </div>
