@@ -1,0 +1,65 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Lint (JS syntax, Python, shell)
+        run: |
+          for f in $(find app -name '*.js' -not -path '*/node_modules/*' -not -path 'app/public/*'); do node --check "$f"; done
+          python3 -m py_compile subfa/app/subfa.py host/seemore-ctl/seemore-ctl app/tests/reference/panel_e2e.py
+          for f in install.sh host/install.sh host/uninstall.sh host/usb-automount/usb-automount; do bash -n "$f"; done
+          python3 tools/gen_openapi.py && git diff --exit-code app/lib/api/openapi.yaml
+      - name: Unit tests (Telegram/Bale adapters vs mock Bot API)
+        working-directory: app
+        run: node --test 'tests/unit/*.test.js'
+      - name: Integration tests (core process vs mock Telegram API)
+        working-directory: app
+        run: node --test 'tests/integration/*.test.js'
+      - name: Host installer dry-run
+        run: sh host/install.sh --all --dry-run --dir "$PWD"
+      - name: Panel build
+        working-directory: panel
+        run: npm ci --no-audit --no-fund && npm run build
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker compose config (all profile combinations)
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          for p in "" media subfa proxy "media,subfa,proxy"; do COMPOSE_PROFILES="$p" docker compose config --services | sort | tr '\n' ' '; echo; done
+          COMPOSE_FILE=docker-compose.yml:compose/iran.yml docker compose config --quiet
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the seemore image
+        run: docker build -t seemore:ci .
+      - name: Smoke test the image
+        run: |
+          docker run --rm seemore:ci node -e "require('/app/lib/telegram'); require('/app/lib/api/server'); console.log('modules ok')"
+          docker run --rm seemore:ci sh -c 'test -f /app/public/index.html && ffprobe -version | head -1 && (rar 2>&1 | head -1 || true)'
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: gitleaks (full history)
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar xz gitleaks
+          ./gitleaks detect --source . --config .gitleaks.toml --redact --verbose --exit-code 1

@@ -1,0 +1,4 @@
+# /etc/tmpfiles.d/seemore-ctl.conf — request/result dirs for the seemore host helper (recreated at boot)
+d /run/seemore-ctl          0755 root root -
+d /run/seemore-ctl/requests 0770 __UID__ __GID__ -
+d /run/seemore-ctl/results  0755 root root -

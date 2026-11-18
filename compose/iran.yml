@@ -1,0 +1,11 @@
+# Optional overlay for hosts in Iran (or anywhere TMDB / Docker Hub are filtered). Enable it in .env:
+#   COMPOSE_FILE=docker-compose.yml:compose/iran.yml
+# and see docs/iran.md for registry mirrors and build args.
+services:
+  jellyfin:
+    # TMDB is filtered: Jellyfin's metadata calls hang until they time out and slow every scan. Resolving the TMDB
+    # hosts to 127.0.0.1 makes them fail fast; Radarr/Sonarr still identify titles through their own metadata proxy.
+    extra_hosts:
+      - "api.themoviedb.org:127.0.0.1"
+      - "www.themoviedb.org:127.0.0.1"
+      - "image.tmdb.org:127.0.0.1"

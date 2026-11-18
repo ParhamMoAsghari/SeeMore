@@ -1,0 +1,20 @@
+# gitleaks configuration: default rules + seemore-specific ones.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "telegram-bot-token"
+description = "Telegram / Bale bot token"
+regex = '''\b[0-9]{6,12}:[A-Za-z0-9_-]{30,}\b'''
+tags = ["token", "telegram"]
+
+[[rules]]
+id = "env-secret-assignment"
+description = "Non-empty secret assigned in an env-style file"
+regex = '''(?m)^(TELEGRAM_TOKEN|BALE_TOKEN|HOOK_KEY|INTERNAL_API_KEY|SUBFA_HOOK_KEY|BOT_WEBHOOK_SECRET|RADARR_KEY|SONARR_KEY|PROWLARR_KEY|BAZARR_KEY|QBIT_PASS|JELLYFIN_PASS|CLOUDFLARE_API_TOKEN)=[^\s#]{6,}'''
+tags = ["env"]
+
+[allowlist]
+description = "test fixtures with fake tokens; setting keys that look like keys"
+paths = ['''app/tests/.*\.test\.js''', '''app/tests/mock-telegram\.js''']
+regexes = ['''^subfa\.SUBF2M_GAP$''']

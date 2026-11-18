@@ -1,0 +1,9 @@
+.git
+**/node_modules
+app/public
+state
+appdata
+backups
+.env
+*.log
+**/__pycache__

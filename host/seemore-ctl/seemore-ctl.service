@@ -1,0 +1,11 @@
+[Unit]
+Description=seemore host helper (allow-listed compose recreate / caddy reload)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/seemore-ctl
+TimeoutStartSec=900
+NoNewPrivileges=yes
+PrivateTmp=yes

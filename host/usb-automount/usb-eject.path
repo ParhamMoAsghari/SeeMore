@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch seemore USB eject requests
+
+[Path]
+DirectoryNotEmpty=/run/usb-automount/requests
+MakeDirectory=yes
+DirectoryMode=0770
+
+[Install]
+WantedBy=multi-user.target
