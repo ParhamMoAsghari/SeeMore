@@ -10,7 +10,7 @@
 
 ## Quick install
 ```sh
-git clone <your fork or this repo> /opt/seemore && cd /opt/seemore
+git clone https://github.com/ParhamMoAsghari/SeeMore.git /opt/seemore && cd /opt/seemore
 sh install.sh                   # .env (random internal secrets), docker network, folders, permissions, Caddyfile
 $EDITOR .env                 # TELEGRAM_TOKEN, ALLOWED_CHAT, JELLYFIN_PASS, domains … (every variable is documented)
 sudo make host               # optional: USB auto-mount + seemore-ctl (runtime recreate / Caddy reload)

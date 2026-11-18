@@ -1,5 +1,7 @@
 # seemore
 
+[![CI](https://github.com/ParhamMoAsghari/SeeMore/actions/workflows/ci.yml/badge.svg)](https://github.com/ParhamMoAsghari/SeeMore/actions/workflows/ci.yml)
+
 **Self-hosted media automation & management platform.** seemore covers the whole life of a movie or a series on your
 own server — and lets you run all of it from a **Telegram bot** or a **web panel**:
 
@@ -39,7 +41,7 @@ users with fine-grained permissions, runtime configuration and a durable job eng
 Requirements: Linux, Docker + Compose v2.20+, a data disk at `/data` (configurable). Full guide:
 [docs/installation.md](docs/installation.md).
 ```sh
-git clone <this repo> /opt/seemore && cd /opt/seemore
+git clone https://github.com/ParhamMoAsghari/SeeMore.git /opt/seemore && cd /opt/seemore
 sh install.sh                        # .env with random internal secrets, docker network, folders, permissions
 $EDITOR .env                      # TELEGRAM_TOKEN, ALLOWED_CHAT, JELLYFIN_PASS, API keys, domains
 sudo make host                    # optional: USB auto-mount + runtime-settings helper (udev/systemd)
