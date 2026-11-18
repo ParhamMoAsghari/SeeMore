@@ -14,6 +14,8 @@ WORKDIR /src/panel
 COPY panel/package.json panel/package-lock.json ./
 RUN if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi && npm ci --no-audit --no-fund
 COPY panel/ ./
+# Rollup is pinned to 4.68.7 (panel/package.json). 4.68.6's native parser rejects
+# react-dom on Alpine/musl ("Code is nested too deeply") and fails this build.
 RUN npm run build
 
 FROM ${NODE_IMAGE}

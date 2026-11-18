@@ -43,6 +43,11 @@ Prowlarr, qBittorrent, Bazarr, Jellyfin and Seerr.
   for every component, offline tests (mock Telegram Bot API), CI (lint, tests, compose config, docker build,
   gitleaks).
 
+### Fixed
+- **Panel build inside the Alpine image.** Rollup 4.68.6's native parser rejects `react-dom` on musl
+  (`Code is nested too deeply`), so `docker build` on `node:22-alpine` failed. The panel lockfile pins Rollup
+  4.68.7, which parses that file again.
+
 ### Known limitations
 - **Real USB plug-in/unplug not tested yet.** Drives were loop-device images; a yank was emulated with lazy unmount +
   loop detach. The copy/import wizards were not run against a physical drive.
